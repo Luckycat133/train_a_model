@@ -23,7 +23,7 @@ dataset/dictionaries/*.txt
 
 # IDE配置
 .idea/
-.vscode/
+
 .cursor/
 
 # 虚拟环境
@@ -85,7 +85,7 @@ model_weights/*.bin
 tokenizer_backup_*.json
 
 # 忽略IDE文件
-.vscode/
+
 .idea/
 *.swp
 *.swo
