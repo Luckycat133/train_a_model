@@ -1,0 +1,96 @@
+# 灵猫墨韵古典文学数据处理系统配置文件
+
+# 数据路径配置
+paths:
+  input_dir: "collection"          # 原始数据目录
+  output_dir: "dataset"            # 处理后数据输出目录
+  temp_dir: "logs/temp"            # 临时文件目录
+  log_dir: "logs"                  # 日志目录
+
+# 处理器配置
+processor:
+  batch_size: 1000                 # 批处理大小
+  max_workers: 8                   # 最大工作线程数
+  file_extensions: [".json", ".txt", ".jsonl"] # 支持的文件扩展名
+
+# 内容生成配置
+content_generator:
+  # 赏析生成配置
+  appreciation:
+    enabled: true
+    model: "gpt-4"                 # 使用的模型
+    temperature: 0.7               # 生成温度
+    max_tokens: 1000               # 最大生成令牌数
+  
+  # 问答生成配置
+  qa:
+    enabled: true
+    types:                         # 问答类型及权重
+      translation: 0.3             # 翻译
+      appreciation: 0.2            # 赏析
+      recitation: 0.1              # 背诵
+      introduction: 0.1            # 介绍
+      summary: 0.1                 # 总结
+      segmentation: 0.05           # 分词
+      creative: 0.05               # 创作
+      allusion: 0.05               # 典故
+      comparison: 0.05             # 比较
+    variations_per_type: 3         # 每种类型的变体数量
+
+# 质量控制配置
+quality_control:
+  machine_evaluation:
+    enabled: true
+    min_score: 0.7                 # 最低接受分数
+  
+  ai_evaluation:
+    enabled: true
+    sample_rate: 0.1               # 抽样率
+    model: "gpt-4"
+  
+  human_review:
+    enabled: true
+    sample_size: 100               # 人工审核样本大小
+    high_risk_threshold: 0.8       # 高风险阈值
+
+# 版本控制配置
+version_control:
+  track_dependencies: true
+  version_format: "v{major}.{minor}.{patch}"
+  current_version: "v2.0.0"
+
+# 系统配置
+system:
+  log_level: "INFO"
+  night_mode:                      # 夜间模式配置
+    enabled: true
+    start_time: "21:00"
+    end_time: "08:00"
+    resource_limits:
+      max_workers: 12              # 夜间模式下最大工作线程数
+
+# 分词器配置
+tokenizer:
+  vocab_size: 30000                # 词汇表大小
+  special_tokens:                  # 特殊符号列表
+    - "[UNK]"
+    - "[CLS]"
+    - "[SEP]"
+    - "[PAD]"
+    - "[MASK]"
+  dictionary_path: "dataset/dictionaries/classical_terms.txt"  # 古文专用词典路径
+  evaluation:                      # 评估配置
+    sample_types:                  # 评估样本类型
+      - "prose"
+      - "poem"
+      - "article"
+      - "chu_ci"
+    dynasties:                     # 朝代分类
+      - "先秦"
+      - "汉"
+      - "唐"
+      - "宋"
+      - "元"
+      - "明"
+      - "清"
+      - "现代"

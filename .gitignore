@@ -1,0 +1,93 @@
+# Python编译缓存
+__pycache__/
+*.py[cod]
+*$py.class
+**/__pycache__/
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 临时文件和日志
+temp/
+logs/
+temp_data/
+cleanup_temp/
+temp_corpus.txt
+*.corpus
+*.corpus.txt
+
+# 数据集文件
+dataset/*.jsonl
+dataset/dictionaries/*.txt
+
+# IDE配置
+.idea/
+.vscode/
+
+# 虚拟环境
+venv/
+.env/
+llm_env/
+
+# 模型权重和缓存
+model_weights/
+*.pth
+*.ckpt
+*.pt
+
+# 其他临时文件
+*.log
+*.tmp
+*.bak
+*_backup_*
+
+# 忽略虚拟环境
+llm_env/
+venv/
+env/
+.env/
+
+# 忽略大型数据文件
+dataset/*.jsonl
+collection/
+
+# 忽略临时文件
+temp_corpus.txt
+temp_*
+*.tmp
+
+# 忽略大型日志文件
+logs/train_model/*.log
+logs/**/*.log
+*.log
+logs/**/
+
+# 忽略编译文件和缓存
+__pycache__/
+*.py[cod]
+*$py.class
+.cache/
+
+# 忽略系统文件
+.DS_Store
+
+# 忽略模型权重文件
+model_weights/*.pt
+model_weights/*.pth
+model_weights/*.bin
+
+# 忽略Jupyter notebooks缓存
+.ipynb_checkpoints/
+
+# 忽略大型词汇表和分词器文件
+tokenizer_backup_*.json
+
+# 忽略IDE文件
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 忽略测试输出
+test_output/
