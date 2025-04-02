@@ -24,6 +24,7 @@ dataset/dictionaries/*.txt
 # IDE配置
 .idea/
 .vscode/
+.cursor/
 
 # 虚拟环境
 venv/
