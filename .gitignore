@@ -49,7 +49,12 @@ venv/
 env/
 .env/
 
+# 忽略IDE和编辑器文件
+.cursor/
+.idea/
+
 # 忽略大型数据文件
+dataset/
 dataset/*.jsonl
 collection/
 
@@ -73,10 +78,10 @@ __pycache__/
 # 忽略系统文件
 .DS_Store
 
-# 忽略模型权重文件
-model_weights/*.pt
-model_weights/*.pth
-model_weights/*.bin
+# 模型权重文件（不忽略）
+# model_weights/*.pt
+# model_weights/*.pth
+# model_weights/*.bin
 
 # 忽略Jupyter notebooks缓存
 .ipynb_checkpoints/
