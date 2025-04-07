@@ -20,7 +20,7 @@ logging.basicConfig(
 logger = logging.getLogger("性能测试")
 
 # 导入优化后的组件
-from tokenizer_optimized import ClassicalTokenizer
+from tokenizer import ClassicalTokenizer
 from processor import MemoryPool
 from train_model import LMDataset
 
@@ -189,4 +189,4 @@ def run_all_tests():
     return all_passed
 
 if __name__ == "__main__":
-    run_all_tests() 
+    run_all_tests()

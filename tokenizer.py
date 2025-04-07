@@ -767,4 +767,4 @@ class ClassicalTokenizer:
         
         # 根据文本类型选择分词策略
         if text_type in self.text_type_strategies:
-            #
+            return self.text_type_strategies[text_type](text)

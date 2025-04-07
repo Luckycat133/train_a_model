@@ -29,7 +29,6 @@ dataset/dictionaries/*.txt
 # 虚拟环境
 venv/
 .env/
-llm_env/
 
 # 模型权重和缓存
 model_weights/
@@ -44,7 +43,6 @@ model_weights/
 *_backup_*
 
 # 忽略虚拟环境
-llm_env/
 venv/
 env/
 .env/
