@@ -17,13 +17,14 @@ temp_corpus.txt
 *.corpus
 *.corpus.txt
 
-# 数据集文件
-dataset/*.jsonl
-dataset/dictionaries/*.txt
+# 数据集和收集目录 - 只保留目录结构
+dataset/*
+!dataset/.gitkeep
+collection/*
+!collection/.gitkeep
 
 # IDE配置
 .idea/
-
 .cursor/
 
 # 虚拟环境
@@ -31,10 +32,10 @@ venv/
 .env/
 
 # 模型权重和缓存
-# model_weights/ - 现在纳入版本控制
 *.pth
 *.ckpt
 *.pt
+!model_weights/**/*
 
 # 其他临时文件
 *.log
