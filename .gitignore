@@ -31,7 +31,7 @@ venv/
 .env/
 
 # 模型权重和缓存
-model_weights/
+# model_weights/ - 现在纳入版本控制
 *.pth
 *.ckpt
 *.pt
@@ -52,9 +52,11 @@ env/
 .idea/
 
 # 忽略大型数据文件
-dataset/
-dataset/*.jsonl
-collection/
+# 保留目录结构但忽略内容
+dataset/*
+!dataset/.gitkeep
+collection/*
+!collection/.gitkeep
 
 # 忽略临时文件
 temp_corpus.txt
