@@ -1,10 +1,10 @@
 # My LLM Project
 
-[English](./README.md) | [中文](../../README.md)
+[English](./README_en.md) | [Chinese](./README.md)
 
 ## Project Overview
 
-This is a project for training and developing large language models, featuring complete data processing, tokenization, training, and evaluation workflows. The project adopts a modular design for easy extension and optimization.
+This is a project for training and developing large language models, including complete data processing, tokenization, training and evaluation workflows. The project adopts a modular design for easy extension and optimization.
 
 ## Key Features
 
@@ -33,8 +33,8 @@ This is a project for training and developing large language models, featuring c
 pip install -r requirements.txt
 ```
 
-2. Configure environment
-Please refer to the [Installation Guide](../installation/en/installation_guide.md)
+2. Setup environment
+Refer to [Installation Guide](./docs/en/installation_guide.md) or [安装指南](./docs/cn/installation_guide.md)
 
 3. Run training
 ```bash
@@ -43,10 +43,10 @@ python train_model.py
 
 ## Documentation
 
-- [Project Overview](./project_overview.md)
-- [Directory Structure](../standards/en/directory_structure.md)
-- [Changelog](../../changelog/)
+- [Project Overview](./docs/project_overview.md)
+- [Directory Structure](./docs/standards/directory_structure.md)
+- [Change Log](./changelog/)
 
 ## License
 
-This project is open-sourced under the MIT License.
+This project is open source under MIT License.
