@@ -97,8 +97,8 @@ My_LLM/
 
 ## Version Changelog
 
-- [changelog/for_train_model.md](./changelog/for_train_model.md) - Training updates
-- [changelog/for_cleanup.md](./changelog/for_cleanup.md) - Cleanup updates
+- [changelog/en/for_train_model.md](./changelog/en/for_train_model.md) - Training updates
+- [changelog/en/for_cleanup.md](./changelog/en/for_cleanup.md) - Cleanup updates
 
 ## Recent Updates
 

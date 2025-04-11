@@ -2,6 +2,13 @@
 
 [English](./for_tokenizer.md) | [中文](../cn/for_tokenizer.md)
 
+## [v0.3.7] - 2024-04-10
+### Test Code Enhancement
+- Created comprehensive enhanced test script (test_tokenizer_enhanced.py) with detailed performance benchmarking
+- Added edge case testing for robust error handling and boundary conditions
+- Implemented performance data collection and visualization capabilities
+- Added JSONL processing specific tests to validate data extraction functionality
+
 ## [v0.3.6] - 2024-04-07
 ### Test Code Optimization
 - Refactored tokenizer test scripts for clearer test flow

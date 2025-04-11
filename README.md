@@ -2,9 +2,6 @@
 
 [English](./README_en.md) | [中文](./README.md)
 
-
-[English](./docs/en/README.md) | [中文](./README.md)
-
 ## 项目概述 | Project Overview
 
 这是一个用于训练和开发大语言模型的项目，包含了完整的数据处理、分词、训练和评估流程。项目采用模块化设计，便于扩展和优化。
@@ -46,9 +43,9 @@ python train_model.py
 
 ## 文档
 
-- [项目概览](./docs/project_overview.md)
-- [目录结构说明](./docs/standards/directory_structure.md)
-- [更新日志](./changelog/)
+- [项目概览](./docs/cn/project_overview.md)
+- [目录结构说明](./docs/cn/standards/directory_structure.md)
+- [更新日志](./changelog/cn/)
 
 ## 许可证
 
