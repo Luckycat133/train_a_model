@@ -2,6 +2,14 @@
 
 [English](./for_processor.md) | [中文](../cn/for_processor.md)
 
+## [v2.3.5] - 2024-04-10
+### Test Code Enhancement
+- Created comprehensive test script (test_processor.py) for data processing functionality
+- Implemented performance benchmarking for batch processing with different configurations
+- Added memory pool testing for resource management optimization
+- Developed test environment setup and cleanup automation
+- Implemented data collection capabilities for performance analysis
+
 ## [v2.3.4] - 2024-03-25
 ### Code Optimization
 - Merged tokenizer-related functions to improve code consistency

@@ -43,9 +43,9 @@ python train_model.py
 
 ## Documentation
 
-- [Project Overview](./docs/project_overview.md)
-- [Directory Structure](./docs/standards/directory_structure.md)
-- [Change Log](./changelog/)
+- [Project Overview](./docs/en/project_overview.md)
+- [Directory Structure](./docs/en/directory_structure.md)
+- [Change Log](./changelog/en/)
 
 ## License
 
