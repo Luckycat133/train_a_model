@@ -566,19 +566,9 @@ class ClassicalTokenizer:
         # 更新缓存
         self._update_cache(cache_key, result)
         
-        # 性能优化：缓存清理（开发中）
-        if len(self.token_cache) > self.max_cache_size:
-            # 按访问频率排序
-            sorted_items = sorted(
-                self.token_cache.items(),
-                key=lambda x: x[1][1],  # 假设缓存值是(tokens, access_time)
-                reverse=True
-            )
-            # 保留前75%的缓存项
-            keep_size = int(self.max_cache_size * 0.75)
-            self.token_cache = dict(sorted_items[:keep_size])
-            
         return result
+
+    # 删除第一个tokenize方法定义，保留第二个定义
 
     def _get_from_cache(self, key):
         """从缓存中获取结果，包含访问统计"""
@@ -601,53 +591,6 @@ class ClassicalTokenizer:
                 self.token_cache = dict(items[len(items)//4:])
         
         self.token_cache[key] = value
-        # 检查缓存
-        cache_key = f"{text}_{return_pos}"
-        if cache_key in self.token_cache:
-            self.cache_hits += 1
-            return self.token_cache[cache_key]
-        
-        self.cache_misses += 1
-        tokens = []
-        pos_tags = []
-        i = 0
-        text_length = len(text)
-        
-        while i < text_length:
-            # 初始化未匹配
-            match = None
-            pos = None
-            # 限定最大匹配长度
-            max_len = min(self.max_dict_length, text_length - i)
-            
-            # 按长度查找，从最长到最短
-            for l in range(max_len, 0, -1):
-                if l in self.dictionary_by_length:
-                    candidate = text[i:i+l]
-                    if candidate in self.dictionary_by_length[l]:
-                        match = candidate
-                        pos = self.dictionary_by_length[l][match]
-                        break
-            
-            if match:
-                tokens.append(match)
-                pos_tags.append(pos)
-                i += len(match)
-            else:
-                tokens.append(text[i])
-                pos_tags.append('n')  # 默认未知词性标注为名词
-                i += 1
-        
-        result = (tokens, pos_tags) if return_pos else tokens
-        
-        # 更新缓存
-        if len(self.token_cache) >= self.max_cache_size:
-            # 简单的缓存清理策略：清空一半的缓存
-            cache_items = list(self.token_cache.items())
-            self.token_cache = dict(cache_items[len(cache_items)//2:])
-        
-        self.token_cache[cache_key] = result
-        return result
 
     # 添加LRU缓存包装器方法
     @lru_cache(maxsize=32768)
@@ -677,9 +620,28 @@ class ClassicalTokenizer:
         # 性能优化：空文本快速返回
         if not text or len(text.strip()) == 0:
             return []
-            
-        # 性能优化：缓存键生成
-        cache_key = f"{text[:100]}_{method}_{text_type}"  # 只使用文本前100个字符作为缓存键的一部分
+        
+        # 自动判断文本类型（如果未指定）
+        if text_type is None:
+            if "兮" in text and ("兮" in text.split("，") or "兮" in text.split("。")):
+                text_type = "chu_ci"  # 包含"兮"字且位于句中可能是楚辞
+            elif len(text) <= 100 and ("，" in text or "。" in text) and all(len(line) <= 15 for line in text.split("\n")):
+                text_type = "poem"  # 短文本且有断句可能是诗词
+            elif len(text) > 100:
+                text_type = "article"  # 长文本可能是文章
+            else:
+                text_type = "prose"  # 默认为散文
+        
+        # 保存原始文本前缀用于缓存键
+        original_text_prefix = text[:100]
+        
+        # 性能优化：预处理文本
+        if text_type and text_type in self.text_type_strategies:
+            logger.debug(f"Applying preprocessing strategy for type: {text_type}")
+            text = self.text_type_strategies[text_type](text) # 对 text 进行预处理
+        
+        # 性能优化：缓存键生成 - 移到预处理后，使用原始文本前缀
+        cache_key = f"{original_text_prefix}_{method}_{text_type}"
         
         # 检查缓存
         if use_cache and cache_key in self.token_cache:
@@ -688,25 +650,17 @@ class ClassicalTokenizer:
         
         self.cache_misses += 1
         
-        # 性能优化：预处理文本
-        if text_type and text_type in self.text_type_strategies:
-            logger.debug(f"Applying preprocessing strategy for type: {text_type}")
-            text = self.text_type_strategies[text_type](text) # 对 text 进行预处理
-        
         # 性能优化：根据文本长度选择处理策略
         if len(text) < 100:  # 短文本直接处理
             tokens = self._process_short_text(text, method)
         else:  # 长文本分段处理
             tokens = self._process_long_text(text, method)
         
-        # 更新缓存 (使用修正后的 cache_key，可能需要基于 original_text)
+        # 更新缓存
         if use_cache:
-             # cache_key 可能需要重新考虑，因为它基于预处理前的文本片段
-             # 但缓存的值是基于预处理后的文本计算的 tokens
-             # 一个简单的做法是用原始文本片段+参数作为key
-             self._update_cache(cache_key, tokens) # 使用 _update_cache 方法
+             self._update_cache(cache_key, tokens)
 
-        return tokens # *** 确保返回的是 tokens ***
+        return tokens
 
     def _process_short_text(self, text, method):
         """处理短文本的优化方法"""
@@ -738,25 +692,3 @@ class ClassicalTokenizer:
                     logger.warning(f"分词处理出错: {e}")
             
             return results
-        if not text:
-            return []
-            
-        # 自动判断文本类型（如果未指定）
-        if text_type is None:
-            if "兮" in text and ("兮" in text.split("，") or "兮" in text.split("。")):
-                text_type = "chu_ci"  # 包含"兮"字且位于句中可能是楚辞
-            elif len(text) <= 100 and ("，" in text or "。" in text) and all(len(line) <= 15 for line in text.split("\n")):
-                text_type = "poem"  # 短文本且有断句可能是诗词
-            elif len(text) > 100:
-                text_type = "article"  # 长文本可能是文章
-            else:
-                text_type = "prose"  # 默认为散文
-        
-        # 根据文本类型选择分词策略
-        if text_type in self.text_type_strategies:
-            text = self.text_type_strategies[text_type](text)
-            
-        # 更新缓存
-        self._update_cache(cache_key, tokens)
-        
-        return tokens
