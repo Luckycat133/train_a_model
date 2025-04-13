@@ -13,6 +13,7 @@ import logging
 import tempfile
 import shutil
 import random
+import pytest
 import matplotlib.pyplot as plt
 import numpy as np
 from pathlib import Path
@@ -29,6 +30,52 @@ logger = logging.getLogger("分词器测试")
 # 导入分词器组件
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 from tokenizer import ClassicalTokenizer
+
+# 基础分词测试
+@pytest.mark.parametrize("text_input, expected_tokens", [
+    ("你好世界", ["你好", "世界"]),
+    ("床前明月光", ["床前", "明月光"]),
+    ("Hello world!", ["Hello", "world", "!"]),
+])
+def test_basic_tokenization(text_input, expected_tokens):
+    """测试基础分词功能"""
+    tokenizer = ClassicalTokenizer()
+    assert tokenizer.tokenize(text_input) == expected_tokens
+
+# 不同method测试
+@pytest.mark.parametrize("method, text_input, expected_tokens", [
+    ("max_match", "春风又绿江南岸", ["春风", "又", "绿", "江南", "岸"]),
+    ("bpe", "Hello world!", ["Hello", "world", "!"]),
+    ("auto", "落霞与孤鹜齐飞", ["落霞", "与", "孤鹜", "齐飞"]),
+])
+def test_different_methods(method, text_input, expected_tokens):
+    """测试不同分词方法"""
+    tokenizer = ClassicalTokenizer()
+    assert tokenizer.tokenize(text_input, method=method) == expected_tokens
+
+# 不同text_type测试
+@pytest.mark.parametrize("text_type, text_input, expected_tokens", [
+    ("poem", "关关雎鸠，在河之洲。", ["关关雎鸠", "，", "在河之洲", "。"]),
+    ("chu_ci", "帝高阳之苗裔兮，朕皇考曰伯庸。", ["帝高阳之苗裔", "兮", "，", "朕皇考曰伯庸", "。"]),
+    ("prose", "落霞与孤鹜齐飞，秋水共长天一色。", ["落霞", "与", "孤鹜", "齐飞", "，", "秋水", "共", "长天", "一色", "。"]),
+])
+def test_text_type_processing(text_type, text_input, expected_tokens):
+    """测试不同文本类型处理"""
+    tokenizer = ClassicalTokenizer()
+    assert tokenizer.tokenize(text_input, text_type=text_type) == expected_tokens
+
+# 边界条件测试
+@pytest.mark.parametrize("text_input, expected_tokens", [
+    ("", []),
+    ("   \n\t", []),
+    ("123456", ["123456"]),
+    ("@#$%^", ["@", "#", "$", "%", "^"]),
+    ("Hello, 世界!", ["Hello", ",", " ", "世界", "!"]),
+])
+def test_edge_cases(text_input, expected_tokens):
+    """测试边界条件和特殊字符"""
+    tokenizer = ClassicalTokenizer()
+    assert tokenizer.tokenize(text_input) == expected_tokens
 
 def setup_test_environment(dry_run=False):
     """设置测试环境，创建必要的目录和文件
