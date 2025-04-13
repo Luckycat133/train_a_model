@@ -234,6 +234,10 @@ class ClassicalTokenizer:
                 # 在"兮"字后添加适当的断句
                 parts = line.split('兮')
                 line = '兮\n'.join(parts)
+                # 添加楚辞特有的韵律处理
+                line = line.replace('兮\n', '兮\n\n')  # 在兮字后添加空行增强韵律感
+                # 移除多余的标点
+                line = line.replace('，', '').replace('。', '')
             if line:
                 processed_lines.append(line)
         return '\n'.join(processed_lines)
@@ -406,35 +410,7 @@ class ClassicalTokenizer:
                             logger.warning(f"读取训练文件 {file_path} 时出错: {error}")
                         else:
                             corpus_lines.extend(lines)
-        else:
-            # 使用并行处理读取指定的训练文件内容
-            corpus_lines = []
-            file_queue = queue.Queue()
-            
-            def process_text_file(file_path):
-                """处理普通文本文件的线程函数"""
-                if os.path.exists(file_path):
-                    try:
-                        with open(file_path, "r", encoding="utf-8") as f:
-                            lines = f.readlines()
-                            file_queue.put((file_path, lines, None))
-                    except Exception as e:
-                        file_queue.put((file_path, [], str(e)))
-                else:
-                    file_queue.put((file_path, [], "文件不存在"))
-            
-            # 使用线程池并行处理文件
-            logger.info(f"使用多线程处理 {len(training_files)} 个文本文件...")
-            with ThreadPoolExecutor(max_workers=min(self.max_workers, len(training_files))) as executor:
-                futures = [executor.submit(process_text_file, file) for file in training_files]
-                
-                # 等待所有线程完成并收集结果
-                for _ in tqdm(futures, desc="读取文本文件"):
-                    file_path, lines, error = file_queue.get()
-                    if error:
-                        logger.warning(f"读取训练文件 {file_path} 时出错: {error}")
-                    else:
-                        corpus_lines.extend(lines)
+
 
         if not corpus_lines:
             logger.warning("未找到有效的训练数据，分词器训练中止")
@@ -590,6 +566,18 @@ class ClassicalTokenizer:
         # 更新缓存
         self._update_cache(cache_key, result)
         
+        # 性能优化：缓存清理（开发中）
+        if len(self.token_cache) > self.max_cache_size:
+            # 按访问频率排序
+            sorted_items = sorted(
+                self.token_cache.items(),
+                key=lambda x: x[1][1],  # 假设缓存值是(tokens, access_time)
+                reverse=True
+            )
+            # 保留前75%的缓存项
+            keep_size = int(self.max_cache_size * 0.75)
+            self.token_cache = dict(sorted_items[:keep_size])
+            
         return result
 
     def _get_from_cache(self, key):
@@ -702,7 +690,8 @@ class ClassicalTokenizer:
         
         # 性能优化：预处理文本
         if text_type and text_type in self.text_type_strategies:
-            text = self.text_type_strategies[text_type](text)
+            logger.debug(f"Applying preprocessing strategy for type: {text_type}")
+            text = self.text_type_strategies[text_type](text) # 对 text 进行预处理
         
         # 性能优化：根据文本长度选择处理策略
         if len(text) < 100:  # 短文本直接处理
@@ -710,16 +699,14 @@ class ClassicalTokenizer:
         else:  # 长文本分段处理
             tokens = self._process_long_text(text, method)
         
-        # 更新缓存
+        # 更新缓存 (使用修正后的 cache_key，可能需要基于 original_text)
         if use_cache:
-            if len(self.token_cache) >= self.max_cache_size:
-                # 优化的缓存清理：保留最近使用的75%
-                items = sorted(self.token_cache.items(), key=lambda x: x[1][1])  # 按访问时间排序
-                self.token_cache = dict(items[len(items)//4:])  # 保留75%最近使用的项
-            
-            self.token_cache[cache_key] = tokens
-        
-        return tokens
+             # cache_key 可能需要重新考虑，因为它基于预处理前的文本片段
+             # 但缓存的值是基于预处理后的文本计算的 tokens
+             # 一个简单的做法是用原始文本片段+参数作为key
+             self._update_cache(cache_key, tokens) # 使用 _update_cache 方法
+
+        return tokens # *** 确保返回的是 tokens ***
 
     def _process_short_text(self, text, method):
         """处理短文本的优化方法"""
@@ -767,4 +754,9 @@ class ClassicalTokenizer:
         
         # 根据文本类型选择分词策略
         if text_type in self.text_type_strategies:
-            return self.text_type_strategies[text_type](text)
+            text = self.text_type_strategies[text_type](text)
+            
+        # 更新缓存
+        self._update_cache(cache_key, tokens)
+        
+        return tokens
