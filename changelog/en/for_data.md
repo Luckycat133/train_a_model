@@ -14,6 +14,13 @@
   - Optimized log file naming rules
 
 ## [v0.4.1] - 2025-03-11
+
+## [v0.4.0] - 2025-03-11
+### Data Expansion
+- Added complete "Complete Song Ci" dataset
+  - Contains over 21,000 works from Song Dynasty poets
+  - Includes complete metadata of cipai, authors and dynasties
+  - All works have punctuation and paragraph optimization
 ### Data Processing Optimization
 - Improved data preprocessing workflow
   - Adapted to new tokenizer's training data format
