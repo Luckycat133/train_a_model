@@ -2,30 +2,43 @@
 
 [English](./for_tokenizer.md) | [中文](../cn/for_tokenizer.md)
 
+## [v0.3.8] - 2024-04-13
+### New Features
+- Added support for special characters and emoji tokenization
+- Implemented boundary condition test cases
+
+### Bug Fixes
+- Fixed tokenization errors with long strings without spaces
+- Fixed handling of leading/trailing spaces
+
+### Improvements
+- Increased test coverage
+- Optimized test environment setup
+
 ## [v0.3.7] - 2024-04-10
-### Test Code Enhancement
-- Created comprehensive enhanced test script (test_tokenizer_enhanced.py) with detailed performance benchmarking
-- Added edge case testing for robust error handling and boundary conditions
-- Implemented performance data collection and visualization capabilities
-- Added JSONL processing specific tests to validate data extraction functionality
+### Test Code Enhancements
+- Created comprehensive enhanced test script (test_tokenizer_enhanced.py) with detailed performance benchmarks
+- Added boundary condition tests to strengthen error handling and edge case validation
+- Implemented performance data collection and visualization features
+- Added specialized JSONL processing tests to validate data extraction functionality
 
 ## [v0.3.6] - 2024-04-07
 ### Test Code Optimization
 - Refactored tokenizer test scripts for clearer test flow
 - Added complete test cases including dictionary creation, training and evaluation
 - Optimized test dataset generation and management
-- Improved test result display and error handling
+- Improved test result presentation and error handling
 
 ## [v0.3.5] - 2024-03-25
 ### Code Optimization
-- Merged tokenizer.py and tokenizer_optimized.py into unified implementation
-- Integrated advantages from both versions for better code consistency
+- Merged tokenizer.py and tokenizer_optimized.py to unify tokenizer implementation
+- Integrated advantages from both versions to improve code consistency
 - Optimized memory usage and performance, reducing resource consumption
 
-### Feature Enhancement
+### Feature Enhancements
 - Improved caching mechanism for better tokenization efficiency
-- Enhanced batch processing capability for larger text volumes
-- Optimized error handling and logging for system stability
+- Enhanced batch processing capability for larger scale text processing
+- Optimized error handling and logging for better system stability
 
 ## [v0.3.4] - 2024-03-19
 ### Architecture Optimization

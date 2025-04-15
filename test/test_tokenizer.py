@@ -71,6 +71,11 @@ def test_text_type_processing(text_type, text_input, expected_tokens):
     ("123456", ["123456"]),
     ("@#$%^", ["@", "#", "$", "%", "^"]),
     ("Hello, 世界!", ["Hello", ",", " ", "世界", "!"]),
+    ("Mixed 中文 and English 123!", ["Mixed", " ", "中文", " ", "and", " ", "English", " ", "123", "!"]),
+    ("特殊字符测试：\"'\\`~!@#$%^&*()_+-=[]{}|;:,./<>?", ["特殊字符测试", "：", "\"", "'", "\\", "`", "~", "!", "@", "#", "$", "%", "^", "&", "*", "(", ")", "_", "+", "-", "=", "[", "]", "{", "}", "|", ";", ":", ",", ".", "/", "<", ">", "?"]),
+    ("Emoji测试 😊👍🚀", ["Emoji测试", " ", "😊", "👍", "🚀"]),
+    ("VeryLongStringWithoutSpaces"*100, ["VeryLongStringWithoutSpaces"*100]),
+    ("   LeadingAndTrailingSpaces   ", ["LeadingAndTrailingSpaces"]),
 ])
 def test_edge_cases(text_input, expected_tokens):
     """测试边界条件和特殊字符"""
