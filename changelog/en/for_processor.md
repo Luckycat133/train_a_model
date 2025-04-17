@@ -1,5 +1,47 @@
 # Processor Changelog
 
+## [v2.4.0] - In Progress
+### ✨ Feature Enhancement (Pre-training Data Quality Improvement)
+
+- **Implemented PII Redaction**:
+    - Integrated `presidio` library (`presidio-analyzer`, `presidio-anonymizer`) for detecting and redacting Personal Identifiable Information.
+    - Replaced the placeholder `pii_redactor` function in `processor.py` with the actual implementation using Presidio.
+    - Utilized `spacy` models (e.g., `en_core_web_lg`) to support PII detection.
+    - Added PII redaction configurations (enable toggle, entity list, redaction method, replacement tag, Spacy model) to `config/config.yaml` and command-line arguments.
+    - Updated `requirements.txt` to include `presidio-analyzer`, `presidio-anonymizer`, and `spacy`.
+- **Implemented Harmful Content Filtering (Infrastructure)**:
+    - Added `check_harmful_content` function in `processor.py` to determine if text is harmful (currently includes placeholder logic, pending model/API integration).
+    - Incorporated this filtering step into the `clean_text` workflow.
+    - Added harmful content filtering configurations (enable toggle, model path, confidence threshold) to `config/config.yaml` and command-line arguments.
+    - Updated `requirements.txt` to include `transformers` (if not already present or version needs update).
+- **Implemented Enhanced Quality Filtering**:
+    - Added more sophisticated quality filtering rules within the `clean_text` function in `processor.py`.
+    - **Length Filtering**: Added a maximum length limit (`max_length`).
+    - **Language Detection**: Use `langdetect` or `fasttext` (optional) to filter out text not in specified languages.
+    - **Repetition Detection**: Calculate n-gram repetition rates to filter out overly repetitive text.
+    - Added relevant configurations (enable toggle, min/max length, symbol ratio, language filter toggle, allowed languages, detection method, fasttext model path, repetition filter toggle, n-gram size, repetition threshold) to `config/config.yaml` and command-line arguments.
+    - Updated `requirements.txt` to include `langdetect` and `fasttext-wheel`.
+- **Dependencies & Configuration**:
+    - Updated `requirements.txt` to include all new dependencies (`chardet`, `beautifulsoup4`, `colorlog`, `inquirer` were also added for other functionalities).
+    - Updated `config/config.yaml` by adding a `cleaning_rules` section to centralize all cleaning and filtering options.
+    - Refined the logic in `processor.py` for merging command-line arguments and configuration file settings.
+
+## [v2.3.7] - Planned
+### Feature Enhancement (Pre-training Data Quality Improvement)
+
+- **Personal Identifiable Information (PII) Redaction**: Plan to add mechanisms to detect and remove/replace sensitive personal information (e.g., names, addresses, phone numbers).
+- **Harmful Content Filtering**: Plan to integrate functionality to identify and filter out harmful, inappropriate, or offensive content.
+- **Enhanced Quality Filtering**: Plan to introduce more refined quality filtering rules (e.g., based on sentence length, symbol ratio, repetition ratio) or models to filter low-quality text.
+- **Punctuation Handling Adjustment**: Plan to review and potentially adjust the punctuation handling logic, leaning towards preserving punctuation crucial for semantic understanding.
+
+## [v2.3.6] - 2025-04-11
+### Feature Optimization & User Experience Enhancement
+
+- **Command-Line Arguments**: Improved `argparse` help messages using `ArgumentDefaultsHelpFormatter` and argument groups for better clarity.
+- **Progress Bar**: Enhanced `tqdm` progress bar format (`bar_format`) to provide more detailed feedback (e.g., remaining time, processing rate) during file reading and batch processing.
+- **Error Handling**: Improved error logging during file reading and preview, now including specific exception types for easier debugging.
+- **Logging Setup**: Made the `setup_logging` function more robust by adding exception handling and logging configuration details.
+
 [English](./for_processor.md) | [中文](../cn/for_processor.md)
 
 ## [v2.3.5] - 2025-04-10
