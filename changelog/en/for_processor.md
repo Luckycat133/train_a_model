@@ -1,6 +1,6 @@
 # Processor Changelog
 
-## [v2.4.0] - In Progress
+## [v2.4.0] - 2024-04-17
 ### ✨ Feature Enhancement (Pre-training Data Quality Improvement)
 
 - **Implemented PII Redaction**:
@@ -21,6 +21,9 @@
     - **Repetition Detection**: Calculate n-gram repetition rates to filter out overly repetitive text.
     - Added relevant configurations (enable toggle, min/max length, symbol ratio, language filter toggle, allowed languages, detection method, fasttext model path, repetition filter toggle, n-gram size, repetition threshold) to `config/config.yaml` and command-line arguments.
     - Updated `requirements.txt` to include `langdetect` and `fasttext-wheel`.
+
+### 🗑️ Removed Features
+    - Removed harmful content filtering functionality and related configurations.
 - **Dependencies & Configuration**:
     - Updated `requirements.txt` to include all new dependencies (`chardet`, `beautifulsoup4`, `colorlog`, `inquirer` were also added for other functionalities).
     - Updated `config/config.yaml` by adding a `cleaning_rules` section to centralize all cleaning and filtering options.

@@ -37,8 +37,7 @@ cleaning_rules:
   pii_redaction_method: "replace" # 可选: 'replace', 'mask', 'hash', 'remove'
   pii_replacement_tag: "[PII]" # 当 method='replace' 时使用
 
-  # 有害内容过滤 (需要配置模型或 API)
-  filter_harmful: false
+
   harmful_model_path: null # Hugging Face 模型标识符或本地路径 (例如 "bert-base-uncased-toxicity")
   harmful_threshold: 0.7 # 模型预测的置信度阈值
   # harmful_api_key: null # 如果使用第三方 API (例如 Perspective API)

@@ -295,9 +295,7 @@ def clean_text(text: str, cleaning_rules: Dict[str, Any] = None) -> str:
         "pii_replacement_tag": "[PII]",
         "pii_spacy_model": "en_core_web_lg", # Spacy model for Presidio
         # Harmful Content Filtering
-        "filter_harmful": False,
-        "harmful_model_path": None, # Path to local model or identifier for HF model
-        "harmful_threshold": 0.7, # Confidence threshold for filtering
+
         # Quality Filtering
         "filter_quality": False,
         "min_length": 10,
@@ -357,12 +355,7 @@ def clean_text(text: str, cleaning_rules: Dict[str, Any] = None) -> str:
         if not text: # If redaction somehow empties the text
             return ""
 
-    # --- 3. Harmful Content Filtering ---
-    if rules.get("filter_harmful", False):
-        is_harmful = check_harmful_content(text, rules)
-        if is_harmful:
-            logger.debug(f"文本因疑似有害内容被过滤: {text[:50]}...")
-            return "" # 返回空字符串表示过滤
+
         
     # --- 4. Quality Filtering ---
     if rules.get("filter_quality", False):
@@ -485,56 +478,7 @@ def pii_redactor(text: str, rules: Dict[str, Any]) -> str:
         return text # Return original text on error
 
 # --- Harmful Content Filtering Implementation ---
-def check_harmful_content(text: str, rules: Dict[str, Any]) -> bool:
-    """检查文本是否包含有害内容 (占位符/待实现)
-    
-    Args:
-        text: 输入文本
-        rules: 包含有害内容过滤配置的规则字典
-        
-    Returns:
-        True 如果文本被判断为有害，否则 False
-    """
-    # --- Placeholder Implementation --- 
-    # Option 1: Keyword based (simple, limited)
-    # harmful_keywords = rules.get("harmful_keywords", ["敏感词1", "bad_word"])
-    # for keyword in harmful_keywords:
-    #     if keyword in text:
-    #         logger.debug(f"Harmful keyword '{keyword}' found.")
-    #         return True
-            
-    # Option 2: Use a Hugging Face model (Recommended)
-    model_path = rules.get("harmful_model_path")
-    threshold = rules.get("harmful_threshold", 0.7)
-    
-    if model_path:
-        try:
-            # TODO: Implement model loading and prediction
-            # from transformers import pipeline
-            # classifier = pipeline("text-classification", model=model_path, device=0 if torch.cuda.is_available() else -1) # Use GPU if available
-            # results = classifier(text, truncation=True, max_length=512) # Adjust max_length as needed
-            # # Assuming the model outputs labels like 'toxic', 'non-toxic' or scores
-            # # This part depends heavily on the specific model used
-            # for result in results:
-            #     if result['label'] == 'toxic' and result['score'] > threshold: # Example check
-            #          logger.debug(f"Harmful content detected by model {model_path} (Score: {result['score']:.2f})")
-            #          return True
-            logger.warning(f"Harmful content model prediction not yet implemented for path: {model_path}")
-            pass # Replace with actual implementation
-        except Exception as e:
-            logger.error(f"Error during harmful content prediction: {e}", exc_info=True)
-            # Decide whether to filter or not on error? Defaulting to not filtering.
-            return False
-            
-    # Option 3: Use an API (e.g., Perspective API, OpenAI Moderation)
-    # api_key = rules.get("perspective_api_key")
-    # if api_key:
-    #     # TODO: Implement API call
-    #     logger.warning("Harmful content API check not yet implemented.")
-    #     pass
 
-    # Default: No harmful content detected (if no method is configured or implemented)
-    return False
 
 # --- Quality Filtering Helpers ---
 def detect_language(text: str, rules: Dict[str, Any]) -> Optional[str]:
@@ -758,7 +702,7 @@ def main():
     cleaning_group.add_argument("--filter-quality", action="store_true", default=False, help="启用基本质量过滤 (当前为占位符)")
     cleaning_group.add_argument("--min-length", type=int, default=10, help="质量过滤：最小文本长度")
     cleaning_group.add_argument("--max-symbol-ratio", type=float, default=0.1, help="质量过滤：最大符号比例")
-    cleaning_group.add_argument("--filter-harmful", action="store_true", default=False, help="启用有害内容过滤 (当前为占位符)")
+    # ... other keys ...
 
     # 其他参数组
     other_group = parser.add_argument_group('其他选项')
@@ -827,8 +771,8 @@ def main():
     unique_hashes = set()
     processed_results = []
     
-     # 获取清洗规则 (合并配置和命令行参数，命令行优先)
-     cleaning_rules_config = config.get("cleaning_rules", {}).copy() # 使用副本以防修改原始配置
+    # 获取清洗规则 (合并配置和命令行参数，命令行优先)
+    cleaning_rules_config = config.get("cleaning_rules", {}).copy() # 使用副本以防修改原始配置
      
      -     # 从 args 更新清洗规则配置，命令行参数优先
      -     # 使用 getattr 安全地获取属性，避免 AttributeError
