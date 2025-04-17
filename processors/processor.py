@@ -773,30 +773,30 @@ def main():
     
     # 获取清洗规则 (合并配置和命令行参数，命令行优先)
     cleaning_rules_config = config.get("cleaning_rules", {}).copy() # 使用副本以防修改原始配置
-     
-     -     # 从 args 更新清洗规则配置，命令行参数优先
-     -     # 使用 getattr 安全地获取属性，避免 AttributeError
-     -     # 对于 action='store_false'，如果命令行提供了flag，args对应属性为False
-     -     # 对于 action='store_true'，如果命令行提供了flag，args对应属性为True
-     -     rule_args = {
-     -         "remove_html": getattr(args, 'remove_html', None),
-     -         "normalize_whitespace": getattr(args, 'normalize_whitespace', None),
-     -         "remove_control_chars": getattr(args, 'remove_control_chars', None),
-     -         "normalize_punctuation": getattr(args, 'normalize_punctuation', None),
-     -         "remove_urls": getattr(args, 'remove_urls', None),
-     -         "remove_emojis": getattr(args, 'remove_emojis', None),
-     -         "redact_pii": getattr(args, 'redact_pii', None),
-     -         "filter_quality": getattr(args, 'filter_quality', None),
-     -         "min_length": getattr(args, 'min_length', None),
-     -         "max_symbol_ratio": getattr(args, 'max_symbol_ratio', None),
-     -         "filter_harmful": getattr(args, 'filter_harmful', None)
-     -     }
-     -      
-     -     for key, value in rule_args.items():
-     -         # 只有当命令行参数被明确设置时才覆盖 (对于bool类型，检查是否非None；对于其他类型，也检查非None)
-     -         # 注意：args的默认值可能与config不同，这里逻辑是命令行指定了就覆盖
-     -         if value is not None:
-     -             # 特别处理 store_false/store_true 的默认值问题
+    
+    # 从 args 更新清洗规则配置，命令行参数优先
+    # 使用 getattr 安全地获取属性，避免 AttributeError
+    # 对于 action='store_false'，如果命令行提供了flag，args对应属性为False
+    # 对于 action='store_true'，如果命令行提供了flag，args对应属性为True
+    rule_args = {
+        "remove_html": getattr(args, 'remove_html', None),
+        "normalize_whitespace": getattr(args, 'normalize_whitespace', None),
+        "remove_control_chars": getattr(args, 'remove_control_chars', None),
+        "normalize_punctuation": getattr(args, 'normalize_punctuation', None),
+        "remove_urls": getattr(args, 'remove_urls', None),
+        "remove_emojis": getattr(args, 'remove_emojis', None),
+        "redact_pii": getattr(args, 'redact_pii', None),
+        "filter_quality": getattr(args, 'filter_quality', None),
+        "min_length": getattr(args, 'min_length', None),
+        "max_symbol_ratio": getattr(args, 'max_symbol_ratio', None),
+        "filter_harmful": getattr(args, 'filter_harmful', None)
+    }
+    
+    for key, value in rule_args.items():
+        # 只有当命令行参数被明确设置时才覆盖 (对于bool类型，检查是否非None；对于其他类型，也检查非None)
+        # 注意：args的默认值可能与config不同，这里逻辑是命令行指定了就覆盖
+        if value is not None:
+             # 特别处理 store_false/store_true 的默认值问题
      -             # 如果参数是布尔类型且命令行未指定，则不覆盖
      -             is_bool_action = isinstance(getattr(parser.get_default(key.replace('_', '-')), 'default', None), bool)
      -             if not (is_bool_action and value == parser.get_default(key.replace('_', '-'))):
