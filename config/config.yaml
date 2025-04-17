@@ -13,6 +13,51 @@ processor:
   max_workers: 8                   # 最大工作线程数
   file_extensions: [".json", ".txt", ".jsonl"] # 支持的文件扩展名
 
+# 清洗和过滤规则 (processor.py 使用)
+cleaning_rules:
+  # 基础清洗
+  remove_html: true
+  normalize_whitespace: true
+  remove_control_chars: true
+  normalize_punctuation: true
+  remove_urls: true
+  remove_emojis: true
+
+  # PII 编辑 (需要安装 presidio 和 spacy 模型)
+  redact_pii: false
+  pii_spacy_model: "en_core_web_lg" # 用于 Presidio 的 Spacy 模型 (例如 en_core_web_lg, zh_core_web_lg)
+  pii_entities: # 要检测和编辑的 PII 实体列表 (Presidio 支持的)
+    - PERSON
+    - PHONE_NUMBER
+    - EMAIL_ADDRESS
+    - LOCATION # 可能过于宽泛，根据需要调整
+    # - CREDIT_CARD # 取决于数据源
+    # - US_SSN
+    # 添加更多需要的实体...
+  pii_redaction_method: "replace" # 可选: 'replace', 'mask', 'hash', 'remove'
+  pii_replacement_tag: "[PII]" # 当 method='replace' 时使用
+
+  # 有害内容过滤 (需要配置模型或 API)
+  filter_harmful: false
+  harmful_model_path: null # Hugging Face 模型标识符或本地路径 (例如 "bert-base-uncased-toxicity")
+  harmful_threshold: 0.7 # 模型预测的置信度阈值
+  # harmful_api_key: null # 如果使用第三方 API (例如 Perspective API)
+
+  # 质量过滤
+  filter_quality: false
+  min_length: 10 # 最小文本长度
+  max_length: 10000 # 最大文本长度
+  max_symbol_ratio: 0.1 # 最大非字母/数字/空白字符比例
+
+  filter_by_language: false # 是否启用语言过滤
+  allowed_languages: ["zh", "en"] # 允许的语言代码 (ISO 639-1)
+  lang_detection_method: "langdetect" # 可选: 'langdetect', 'fasttext'
+  fasttext_model_path: null # 如果 method='fasttext', 指定模型路径 (例如 lid.176.bin)
+
+  filter_repetition: false # 是否启用重复过滤
+  repetition_ngram_size: 5 # 用于检测重复的 n-gram 大小
+  repetition_threshold: 0.3 # 重复 n-gram 的最大比例阈值
+
 # 内容生成配置
 content_generator:
   # 赏析生成配置
