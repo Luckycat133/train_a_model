@@ -848,7 +848,7 @@ def main():
     
     # 读取并处理数据
     total_batches = 0
-    total_texts = 0
+total_texts = 0
     total_unique = 0
     
     with ProcessPoolExecutor(max_workers=args.max_workers) as executor:
