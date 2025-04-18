@@ -52,68 +52,60 @@ presidio_anonymizer = None
 #     nlp = None
 
 # --- Setup Logging ---
-def setup_logging(log_dir: str = "logs", log_level: str = "INFO", colored: bool = True) -> logging.Logger:
-    """配置日志系统
+def setup_logging(config) -> logging.Logger:
+    # 添加第三方库警告过滤
+    import warnings
+    from urllib3.exceptions import NotOpenSSLWarning
+    from bs4 import MarkupResemblesLocatorWarning
+    warnings.filterwarnings("ignore", category=NotOpenSSLWarning)
+    warnings.filterwarnings("ignore", category=MarkupResemblesLocatorWarning)
     
-    Args:
-        log_dir: 日志目录
-        log_level: 日志级别
-        colored: 是否使用彩色日志
-        
-    Returns:
-        日志记录器
-    """
-    global logger # Ensure we modify the global logger
-    try:
-        # 确保日志目录存在
-        log_dir_path = Path(log_dir)
-        log_dir_path.mkdir(exist_ok=True, parents=True)
-        
-        # 创建日志文件名，包含时间戳
-        log_file = log_dir_path / f"processor_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
-        
-        # 获取日志记录器
-        logger = logging.getLogger("processor")
-        logger.setLevel(getattr(logging, log_level.upper()))
-        logger.handlers = []  # 清除现有处理器
-        
-        # 文件处理器 - 记录详细信息
-        file_handler = logging.FileHandler(log_file, encoding="utf-8")
-        file_handler.setLevel(getattr(logging, log_level.upper()))
-        file_handler.setFormatter(logging.Formatter(
-            '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S'
-        ))
-        logger.addHandler(file_handler)
-        
-        # 控制台处理器 - 显示简洁信息
-        console_handler = logging.StreamHandler()
-        console_handler.setLevel(getattr(logging, log_level.upper()))
-        
-        if colored:
-            # 使用彩色日志
-            color_formatter = colorlog.ColoredFormatter(
-                '%(log_color)s%(levelname)-8s%(reset)s %(message)s',
-                log_colors={
-                    'DEBUG': 'cyan',
-                    'INFO': 'green',
-                    'WARNING': 'yellow',
-                    'ERROR': 'red',
-                    'CRITICAL': 'red,bg_white',
-                },
-                secondary_log_colors={},
-                style='%'
-            )
-            console_handler.setFormatter(color_formatter)
-        else:
-            console_handler.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
-            
-        logger.addHandler(console_handler)
-        
-        # 记录日志配置信息
-        logger.debug(f"日志系统已配置: Level={log_level}, Colored={colored}, LogFile={log_file}")
-        
-        return logger
+    # 从配置获取参数
+    log_dir = config.get("log_dir", "logs")
+    log_level_str = config.get("log_level", "INFO").upper()
+    colored = config.get("colored_log", True)
+    
+    # 创建日志目录
+    log_dir_path = Path(log_dir)
+    log_dir_path.mkdir(exist_ok=True, parents=True)
+    
+    # 初始化根日志记录器
+    root_logger = logging.getLogger()
+    root_logger.setLevel(log_level_str)
+    
+    # 清理现有处理器
+    for handler in root_logger.handlers[:]:
+        root_logger.removeHandler(handler)
+
+    # --- 控制台处理器（简洁格式）---
+    console_format = "%(log_color)s%(levelname)-8s%(reset)s %(message)s"
+    console_handler = colorlog.StreamHandler()
+    console_handler.setFormatter(colorlog.ColoredFormatter(console_format))
+    console_handler.setLevel(logging.INFO)  # 控制台只显示INFO及以上级别
+    
+    # --- 文件处理器（详细格式）---
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_file = log_dir_path / f"processor_{timestamp}.log"
+    file_format = "%(asctime)s - %(name)s - %(levelname)-8s - %(filename)s:%(lineno)d - %(message)s"
+    file_handler = logging.FileHandler(log_file, encoding='utf-8')
+    file_handler.setFormatter(logging.Formatter(file_format, datefmt='%Y-%m-%d %H:%M:%S'))
+    
+    # 添加处理器
+    root_logger.addHandler(console_handler)
+    root_logger.addHandler(file_handler)
+
+    # 抑制第三方库的冗余日志
+    logging.getLogger("urllib3").setLevel(logging.WARNING)
+    logging.getLogger("chardet").setLevel(logging.WARNING)
+    logging.getLogger("spacy").setLevel(logging.WARNING)
+
+    # 记录初始化完成信息
+    root_logger.info("=" * 50)
+    root_logger.info("日志系统初始化完成")
+    root_logger.info(f"日志文件: {log_file}")
+    root_logger.info("=" * 50)
+    
+        return root_logger
     except Exception as e:
         # 在日志系统设置失败时，打印到stderr
         print(f"Error setting up logging: {e}", file=sys.stderr)
@@ -134,6 +126,7 @@ def load_config(config_path: str = "config/config.yaml") -> Dict:
         with open(config_path, "r", encoding="utf-8") as f:
             config = yaml.safe_load(f)
         logger.info(f"配置文件加载成功: {config_path}")
+        logger.info("应用清洗规则配置：\n%s", "\n".join([f"{k}: {v}" for k,v in config.get('cleaning_rules', {}).items()]))
         return config
     except Exception as e:
         logger.error(f"加载配置文件失败: {e}")
@@ -163,7 +156,22 @@ def detect_encoding(file_path: str) -> str:
 # --- Read Data ---
 def read_data(input_paths: List[str], file_extensions: List[str], 
               batch_size: int = 1000, preview: bool = False, 
-              preview_count: int = 5) -> Generator[List[str], None, None]:
+              preview_count: int = 5) -> Generator[dict, None, int]:
+    total_json_errors = 0
+    json_decode_errors = 0
+    """读取指定路径下所有支持格式的文件中的文本数据
+    
+    Args:
+        input_paths: 输入路径列表，可以是目录或文件
+        file_extensions: 支持的文件扩展名列表，如 [".txt", ".json", ".jsonl"]
+        batch_size: 批处理大小
+        preview: 是否预览数据
+        preview_count: 预览数据条数
+        
+    Yields:
+        包含文本数据和错误计数的字典
+    """
+    malformed_files_count = 0
     """读取指定路径下所有支持格式的文件中的文本数据
     
     Args:
@@ -207,7 +215,6 @@ def read_data(input_paths: List[str], file_extensions: List[str],
     batch = []
     file_count = 0
     
-    # 使用tqdm创建进度条，显示更详细信息
     with tqdm(total=len(all_files), desc="读取文件", unit="个文件", bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]') as pbar:
         for file_path in all_files:
             file_count += 1
@@ -217,43 +224,45 @@ def read_data(input_paths: List[str], file_extensions: List[str],
             try:
                 with open(file_path, "r", encoding=encoding, errors="replace") as f:
                     if file_ext == ".txt":
-                        # 对于txt文件，按行读取
                         for line in f:
                             line = line.strip()
-                            if line:  # 跳过空行
+                            if line:
                                 batch.append(line)
                                 if len(batch) >= batch_size:
-                                    yield batch
+                                    yield {'texts': batch, 'json_errors': 0}
                                     batch = []
                     elif file_ext == ".json":
-                        # 对于json文件，解析整个文件
-                        data = json.load(f)
-                        if isinstance(data, list):
-                            for item in data:
-                                if isinstance(item, dict) and "text" in item:
-                                    batch.append(item["text"])
-                                elif isinstance(item, str):
-                                    batch.append(item)
-                                if len(batch) >= batch_size:
-                                    yield batch
-                                    batch = []
-                        elif isinstance(data, dict) and "text" in data:
-                            batch.append(data["text"])
-                            if len(batch) >= batch_size:
-                                yield batch
+                        try:
+                            data = json.load(f)
+                            if isinstance(data, list):
+                                batch.extend([item.get("text", "") if isinstance(item, dict) else str(item) for item in data])
+                            elif isinstance(data, dict):
+                                batch.append(data.get("text", ""))
+                            else:
+                                raise json.JSONDecodeError("Invalid JSON structure", "", 0)
+                            if batch:
+                                yield {'texts': batch, 'json_errors': 0}
                                 batch = []
+                        except json.JSONDecodeError as e:
+                            json_decode_errors += 1
+                            logger.warning(f"无效JSON文件已跳过：{file_path} - 错误位置：第{e.lineno}行，列{e.colno}，详情：{e.msg}")
+                            yield {'texts': [], 'json_errors': 1}
                     elif file_ext == ".jsonl":
-                        # 对于jsonl文件，按行解析
+                        file_errors = 0
                         for line in f:
                             try:
-                                data = json.loads(line)
-                                if isinstance(data, dict) and "text" in data:
-                                    batch.append(data["text"])
-                                    if len(batch) >= batch_size:
-                                        yield batch
-                                        batch = []
-                            except json.JSONDecodeError:
-                                logger.warning(f"解析JSONL行失败: {line[:50]}...")
+                                data = json.loads(line.strip())
+                                batch.append(data.get("text", "") if isinstance(data, dict) else str(data))
+                                if len(batch) >= batch_size:
+                                    yield {'texts': batch, 'json_errors': 0}
+                                    batch = []
+                            except json.JSONDecodeError as e:
+                                file_errors += 1
+                                json_decode_errors += 1
+                                logger.warning(f"解析JSONL行失败: {file_path} - 错误位置:{e.pos} - 行内容:{line[:50]}...")
+                        if file_errors > 0:
+                            yield {'texts': batch, 'json_errors': file_errors}
+                            batch = []
                 pbar.update(1)
             except Exception as e:
                 logger.error(f"读取文件失败 ({type(e).__name__}): {file_path} - {e}")
@@ -261,7 +270,8 @@ def read_data(input_paths: List[str], file_extensions: List[str],
     
     # 返回最后一个批次
     if batch:
-        yield batch
+        yield {'texts': batch, 'json_errors': 0}
+    return json_decode_errors
 
 # --- Text Cleaning and Filtering ---
 def clean_text(text: str, cleaning_rules: Dict[str, Any] = None) -> str:
@@ -834,7 +844,13 @@ def main():
         if 'repetition_threshold' in cleaning_rules_config:
             cleaning_rules_config['repetition_threshold'] = float(cleaning_rules_config['repetition_threshold'])
 
-        logger.info(f"最终使用的清洗规则: {cleaning_rules_config}")
+        logger.info("=" * 50)
+        logger.info("Starting Data Processing")
+        logger.info("-" * 50)
+        logger.info("Effective Cleaning Rules:")
+        for key, value in cleaning_rules_config.items():
+            logger.info(f"  - {key}: {value}")
+        logger.info("-" * 50)
  
       # 创建进程池
     process_func = partial(process_batch, cleaning_rules=cleaning_rules_config)
@@ -882,6 +898,7 @@ def main():
     logger.info("处理统计:")
     logger.info(f"  总批次数: {total_batches}")
     logger.info(f"  总文本数: {total_texts}")
+    logger.info(f"  格式错误文件数: {total_malformed}")
     logger.info(f"  去重后文本数: {total_unique}")
     logger.info(f"  去重率: {(1 - total_unique / total_texts) * 100:.2f}% (如果总文本数为0则忽略)" if total_texts > 0 else "  去重率: N/A")
     logger.info(f"  处理时间: {elapsed_time:.2f} 秒")
@@ -889,3 +906,30 @@ def main():
 
 if __name__ == "__main__":
     main()
+    
+    # 在主循环中添加错误计数器
+    json_decode_errors = 0
+    
+    try:
+        with ProcessPoolExecutor(max_workers=args.max_workers) as executor:
+            data_generator = read_data(
+                args.input_paths,
+                args.file_extensions,
+                args.batch_size,
+                args.preview,
+                args.preview_count
+            )
+            
+            # 处理数据批次
+            for batch_data in tqdm(data_generator, desc="处理数据批次", unit="batch"):
+                json_decode_errors += batch_data['json_errors']
+                # ... existing processing logic ...
+    
+    except StopIteration as e:
+        json_decode_errors += e.value
+    
+    # 在最终总结中显示错误计数
+    if json_decode_errors > 0:
+        logger.warning(f"JSON解析错误总数: {json_decode_errors}")
+    
+    # ... rest of existing code ...
