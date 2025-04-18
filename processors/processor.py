@@ -795,62 +795,55 @@ def main():
     for key, value in rule_args.items():
         # 只有当命令行参数被明确设置时才覆盖 (对于bool类型，检查是否非None；对于其他类型，也检查非None)
         # 注意：args的默认值可能与config不同，这里逻辑是命令行指定了就覆盖
-        if value is not None:
-             # 特别处理 store_false/store_true 的默认值问题
-     -             # 如果参数是布尔类型且命令行未指定，则不覆盖
-     -             is_bool_action = isinstance(getattr(parser.get_default(key.replace('_', '-')), 'default', None), bool)
-     -             if not (is_bool_action and value == parser.get_default(key.replace('_', '-'))):
-     -                 cleaning_rules_config[key] = value
-     -                  
-     +     # 获取 argparse 定义的默认值，用于判断命令行参数是否被用户显式设置
-     +     arg_defaults = {action.dest: action.default for action in parser._actions if hasattr(action, 'dest')}
-     + 
-     +     # 定义命令行参数与配置键的映射 (在此例中它们相同)
-     +     rule_arg_keys = [
-     +         "remove_html", "normalize_whitespace", "remove_control_chars",
-     +         "normalize_punctuation", "remove_urls", "remove_emojis",
-     +         "redact_pii", "filter_quality", "min_length", "max_symbol_ratio",
-     +         "filter_harmful"
-     +         # 注意: 如果为 config.yaml 中的其他 cleaning_rules 添加了命令行参数,
-     +         # 例如 --pii-spacy-model, 需要将对应的 dest 名称添加到此列表
-     +     ]
-     + 
-     +     # 遍历相关参数，如果命令行值与 argparse 默认值不同，则覆盖配置
-     +     for key in rule_arg_keys:
-     +         if hasattr(args, key):
-     +             arg_value = getattr(args, key)
-     +             # 检查命令行参数值是否与其 argparse 默认值不同
-     +             if key in arg_defaults and arg_value != arg_defaults[key]:
-     +                 logger.debug(f"使用命令行参数覆盖配置 '{key}': {arg_value} (默认值: {arg_defaults[key]})")
-     +                 cleaning_rules_config[key] = arg_value
-     +             # 如果参数在 args 中但不在 arg_defaults 中 (理论上不应发生), 也应用命令行值
-     +             elif key not in arg_defaults:
-     +                 logger.debug(f"应用命令行参数值 '{key}': {arg_value} (未找到 argparse 默认值)")
-     +                 cleaning_rules_config[key] = arg_value
-     + 
-      # 确保数值类型的规则存在且有效
-      cleaning_rules_config['min_length'] = int(cleaning_rules_config.get('min_length', 10))
-      cleaning_rules_config['max_symbol_ratio'] = float(cleaning_rules_config.get('max_symbol_ratio', 0.1))
-+     # 对其他需要特定类型的配置进行类似的检查和转换 (例如 max_length, harmful_threshold 等)
-+     if 'max_length' in cleaning_rules_config:
-+         cleaning_rules_config['max_length'] = int(cleaning_rules_config['max_length'])
-+     if 'harmful_threshold' in cleaning_rules_config:
-+         cleaning_rules_config['harmful_threshold'] = float(cleaning_rules_config['harmful_threshold'])
-+     if 'repetition_ngram_size' in cleaning_rules_config:
-+         cleaning_rules_config['repetition_ngram_size'] = int(cleaning_rules_config['repetition_ngram_size'])
-+     if 'repetition_threshold' in cleaning_rules_config:
-+         cleaning_rules_config['repetition_threshold'] = float(cleaning_rules_config['repetition_threshold'])
- 
-      logger.info(f"最终使用的清洗规则: {cleaning_rules_config}")
+        # 获取 argparse 定义的默认值，用于判断命令行参数是否被用户显式设置
+        arg_defaults = {action.dest: action.default for action in parser._actions if hasattr(action, 'dest')}
+
+        # 定义命令行参数与配置键的映射 (在此例中它们相同)
+        rule_arg_keys = [
+            "remove_html", "normalize_whitespace", "remove_control_chars",
+            "normalize_punctuation", "remove_urls", "remove_emojis",
+            "redact_pii", "filter_quality", "min_length", "max_symbol_ratio",
+            "filter_harmful"
+            # 注意: 如果为 config.yaml 中的其他 cleaning_rules 添加了命令行参数,
+            # 例如 --pii-spacy-model, 需要将对应的 dest 名称添加到此列表
+        ]
+
+        # 遍历相关参数，如果命令行值与 argparse 默认值不同，则覆盖配置
+        for key in rule_arg_keys:
+            if hasattr(args, key):
+                arg_value = getattr(args, key)
+                # 检查命令行参数值是否与其 argparse 默认值不同
+                if key in arg_defaults and arg_value != arg_defaults[key]:
+                    logger.debug(f"使用命令行参数覆盖配置 '{key}': {arg_value} (默认值: {arg_defaults[key]})")
+                    cleaning_rules_config[key] = arg_value
+                # 如果参数在 args 中但不在 arg_defaults 中 (理论上不应发生), 也应用命令行值
+                elif key not in arg_defaults:
+                    logger.debug(f"应用命令行参数值 '{key}': {arg_value} (未找到 argparse 默认值)")
+                    cleaning_rules_config[key] = arg_value
+
+        # 确保数值类型的规则存在且有效
+        cleaning_rules_config['min_length'] = int(cleaning_rules_config.get('min_length', 10))
+        cleaning_rules_config['max_symbol_ratio'] = float(cleaning_rules_config.get('max_symbol_ratio', 0.1))
+        # 对其他需要特定类型的配置进行类似的检查和转换 (例如 max_length, harmful_threshold 等)
+        if 'max_length' in cleaning_rules_config:
+            cleaning_rules_config['max_length'] = int(cleaning_rules_config['max_length'])
+        if 'harmful_threshold' in cleaning_rules_config:
+            cleaning_rules_config['harmful_threshold'] = float(cleaning_rules_config['harmful_threshold'])
+        if 'repetition_ngram_size' in cleaning_rules_config:
+            cleaning_rules_config['repetition_ngram_size'] = int(cleaning_rules_config['repetition_ngram_size'])
+        if 'repetition_threshold' in cleaning_rules_config:
+            cleaning_rules_config['repetition_threshold'] = float(cleaning_rules_config['repetition_threshold'])
+
+        logger.info(f"最终使用的清洗规则: {cleaning_rules_config}")
  
       # 创建进程池
-     process_func = partial(process_batch, cleaning_rules=cleaning_rules_config)
+    process_func = partial(process_batch, cleaning_rules=cleaning_rules_config)
     
     # 读取并处理数据
     total_batches = 0
-total_texts = 0
+    total_texts = 0
     total_unique = 0
-    
+
     with ProcessPoolExecutor(max_workers=args.max_workers) as executor:
         # 获取数据批次
         data_generator = read_data(
