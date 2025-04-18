@@ -1,5 +1,12 @@
 # Processor Changelog
 
+## [v2.4.0] - 2024-04-18
+### ✨ Feature Enhancement (Pre-training Data Quality Improvement)
+
+- **Logging System Optimization**: Refactored logging system with color differentiation and more detailed timestamp format.
+- **Error Handling Improvement**: Enhanced error handling mechanism with more context information for debugging.
+- **Performance Optimization**: Optimized batch processing flow to reduce memory usage.
+
 ## [v2.4.0] - 2024-04-17
 ### ✨ Feature Enhancement (Pre-training Data Quality Improvement)
 

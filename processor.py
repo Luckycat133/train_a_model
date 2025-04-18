@@ -53,29 +53,42 @@ presidio_anonymizer = None
 
 # --- Setup Logging ---
 def setup_logging(config) -> logging.Logger:
+    '''初始化结构化日志系统（返回专用处理器）
+    Returns:
+        Logger: 专用于数据处理流程的logger对象
+    '''
     # 添加第三方库警告过滤
     import warnings
     from urllib3.exceptions import NotOpenSSLWarning
     from bs4 import MarkupResemblesLocatorWarning
     warnings.filterwarnings("ignore", category=NotOpenSSLWarning)
     warnings.filterwarnings("ignore", category=MarkupResemblesLocatorWarning)
-    
+
+    # 创建专用logger而非根logger
+    processor_logger = logging.getLogger('data_processor')
+    processor_logger.propagate = False  # 防止传播到根logger
+
     # 从配置获取参数
     log_dir = config.get("log_dir", "logs")
     log_level_str = config.get("log_level", "INFO").upper()
-    colored = config.get("colored_log", True)
+    log_level = getattr(logging, log_level_str, logging.INFO)
     
     # 创建日志目录
     log_dir_path = Path(log_dir)
     log_dir_path.mkdir(exist_ok=True, parents=True)
-    
-    # 初始化根日志记录器
-    root_logger = logging.getLogger()
-    root_logger.setLevel(log_level_str)
-    
+
     # 清理现有处理器
-    for handler in root_logger.handlers[:]:
-        root_logger.removeHandler(handler)
+    processor_logger.handlers.clear()
+
+    # 结构化日志格式
+    console_format = colorlog.ColoredFormatter(
+        '%(log_color)s[%(asctime)s] %(levelname)-8s %(cyan)s%(name)s:%(lineno)d%(reset)s %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    file_format = logging.Formatter(
+        '[%(asctime)s] %(levelname)-8s %(name)s:%(lineno)d - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
 
     # --- 控制台处理器（简洁格式）---
     console_format = "%(log_color)s%(levelname)-8s%(reset)s %(message)s"
@@ -99,13 +112,19 @@ def setup_logging(config) -> logging.Logger:
     logging.getLogger("chardet").setLevel(logging.WARNING)
     logging.getLogger("spacy").setLevel(logging.WARNING)
 
+    # 添加处理分隔符
+    def log_section_header(logger, title: str, char: str = '=', length: int = 60):
+        logger.info(char * length)
+        logger.info(f'{title.center(length-4)}')
+        logger.info(char * length)
+
     # 记录初始化完成信息
-    root_logger.info("=" * 50)
-    root_logger.info("日志系统初始化完成")
-    root_logger.info(f"日志文件: {log_file}")
-    root_logger.info("=" * 50)
-    
-        return root_logger
+    log_section_header(processor_logger, '日志系统初始化完成')
+    processor_logger.info(f'日志文件: {log_file}')
+    processor_logger.info(f'日志级别: {log_level_str}')
+    log_section_header(processor_logger, '初始化完成')
+
+    return processor_logger
     except Exception as e:
         # 在日志系统设置失败时，打印到stderr
         print(f"Error setting up logging: {e}", file=sys.stderr)
@@ -156,10 +175,15 @@ def detect_encoding(file_path: str) -> str:
 # --- Read Data ---
 def read_data(input_paths: List[str], file_extensions: List[str], 
               batch_size: int = 1000, preview: bool = False, 
-              preview_count: int = 5) -> Generator[dict, None, int]:
-    total_json_errors = 0
-    json_decode_errors = 0
-    """读取指定路径下所有支持格式的文件中的文本数据
+              preview_count: int = 5) -> Generator[dict, None, None]:
+    """读取数据并返回结构化结果（包含错误统计）
+    Yields:
+        dict: {
+            'texts': List[str],  # 文本批次
+            'json_errors': int   # 本批次JSON解析错误数
+        }
+    """
+    batch_json_errors = 0
     
     Args:
         input_paths: 输入路径列表，可以是目录或文件
@@ -196,7 +220,8 @@ def read_data(input_paths: List[str], file_extensions: List[str],
             # 如果是文件且扩展名匹配，直接添加
             all_files.append(path)
     
-    logger.info(f"找到 {len(all_files)} 个文件")
+    # 使用tqdm.write替代普通日志输出
+    tqdm.write(f'[文件扫描] 发现 {len(all_files)} 个待处理文件', file=sys.stdout)
     
     # 预览模式
     if preview and all_files:
@@ -673,8 +698,37 @@ def main():
     # 解析命令行参数
     parser = argparse.ArgumentParser(
         description="灵猫墨韵数据处理器 - 用于清洗、转换和去重古籍文本数据，为大语言模型训练准备高质量数据集。",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter  # 使用更友好的格式化器
-    )
+    
+    # 添加命令行参数
+    parser.add_argument("-i", "--input", nargs="+", required=True,
+                      help="输入路径（文件或目录）")
+    parser.add_argument("-o", "--output", required=True,
+                      help="输出文件路径（JSONL格式）")
+    parser.add_argument("--log_dir", default="logs",
+                      help="日志文件存储目录")
+    parser.add_argument("--log_level", default="INFO",
+                      choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+                      help="日志级别")
+    parser.add_argument("--batch_size", type=int, default=1000,
+                      help="批处理大小")
+    args = parser.parse_args()
+
+    # 初始化结构化日志系统
+    logger = setup_logging(vars(args))
+    logger.info('\n' + '='*60)
+    logger.info('启动数据处理流程'.center(60))
+    logger.info('='*60)
+
+    # 加载配置文件
+    config = load_config()
+    
+    # 显示清洗规则配置
+    tqdm.write('\n' + '='*60)
+    tqdm.write('当前应用的清洗规则配置：'.center(60))
+    tqdm.write('='*60)
+    for rule, params in config.get('cleaning_rules', {}).items():
+        tqdm.write(f'{rule.upper():<20}: {params}')
+    tqdm.write('='*60 + '\n')
     
     # 输入/输出参数组
     io_group = parser.add_argument_group('输入/输出选项')
@@ -860,34 +914,47 @@ def main():
     total_texts = 0
     total_unique = 0
 
-    with ProcessPoolExecutor(max_workers=args.max_workers) as executor:
-        # 获取数据批次
-        data_generator = read_data(
-            args.input_paths, 
-            args.file_extensions, 
-            args.batch_size,
-            args.preview,
-            args.preview_count
-        )
-        
-        # 提交批处理任务
-        futures = []
-        for batch in data_generator:
-            total_batches += 1
-            total_texts += len(batch)
-            futures.append(executor.submit(process_func, batch))
-        
-        # 处理结果，使用tqdm显示批处理进度
-        for future in tqdm(as_completed(futures), total=len(futures), desc="处理数据批次", unit="批", bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]'):
-            try:
-                batch_results = future.result()
-                for cleaned_text, text_hash in batch_results:
-                    if text_hash not in unique_hashes:
-                        unique_hashes.add(text_hash)
-                        processed_results.append(cleaned_text)
-                        total_unique += 1
-            except Exception as e:
-                logger.error(f"处理批次失败: {e}")
+    # 初始化统计指标
+    total_texts_processed = 0
+    total_json_errors = 0
+    unique_texts = set()
+    start_time = time.time()
+
+    try:
+        with ProcessPoolExecutor() as executor:
+            futures = []
+            with open(output_path, 'w', encoding='utf-8') as f_out:
+                # 使用增强型进度条
+                with tqdm(total=total_files, desc="处理进度", unit="file", 
+                         bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [剩余:{remaining}]') as pbar:
+                    
+                    for data_batch in read_data(args.input, [".txt", ".json", ".jsonl"], 
+                                              args.batch_size, args.preview, args.preview_count):
+                        # 累加批次级错误
+                        total_json_errors += data_batch.get('json_errors', 0)
+                        
+                        # 提交处理任务
+                        futures.append(executor.submit(
+                            process_batch, 
+                            data_batch['texts'], 
+                            config
+                        ))
+                        
+                        # 更新进度条并处理完成的任务
+                        pbar.update(1)
+                        for future in as_completed(futures):
+                            processed_results = future.result()
+                            if processed_results:
+                                # 保存处理结果
+                                processed_results_to_save = [
+                                    {'text': text, 'hash': hashlib.md5(text.encode()).hexdigest()}
+                                    for text in processed_results
+                                ]
+                                for result in processed_results_to_save:
+                                    f_out.write(json.dumps(result, ensure_ascii=False) + '\n')
+                                    unique_texts.add(result['text'])
+                                    total_texts_processed += 1
+                            futures.remove(future)
     
     # 保存结果
     save_results(processed_results, args.output_file, args.output_format)
