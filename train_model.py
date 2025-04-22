@@ -1306,9 +1306,44 @@ if __name__ == "__main__":
     parser.add_argument("--no_night_mode", dest='night_mode', action='store_false', help="禁用夜间低功耗模式")
     parser.add_argument("--save_on_interrupt", action="store_true", default=True, help="中断时保存检查点")
     parser.add_argument("--no_save_on_interrupt", dest='save_on_interrupt', action='store_false', help="禁用中断时保存检查点")
+    parser.add_argument("--clean-before-run", action="store_true", default=False, help="在开始训练前清理旧的日志和图表")
     
     args = parser.parse_args()
     
+    # --- 开始前的清理工作 --- #
+    if args.clean_before_run:
+        logger.info("执行开始前的清理任务 (--clean-before-run)...")
+        # 1. 清理训练日志目录
+        train_log_dir = Path("logs/train_model")
+        if train_log_dir.exists():
+            try:
+                shutil.rmtree(train_log_dir)
+                logger.info(f"已清理训练日志目录: {train_log_dir}")
+                # 清理后重新创建日志目录，避免 setup_logger 失败
+                train_log_dir.mkdir(parents=True, exist_ok=True)
+            except Exception as e:
+                logger.warning(f"清理训练日志目录 {train_log_dir} 时出错: {e}")
+        
+        # 2. 清理旧的统计图表
+        stats_dir = Path(args.model_save_dir)
+        cleaned_plots = 0
+        if stats_dir.exists():
+            for plot_file in stats_dir.glob("training_stats_*.png"):
+                try:
+                    plot_file.unlink()
+                    cleaned_plots += 1
+                except Exception as e:
+                    logger.warning(f"删除图表 {plot_file} 时出错: {e}")
+            for plot_file in stats_dir.glob("training_stats_*.pdf"):
+                try:
+                    plot_file.unlink()
+                    cleaned_plots += 1
+                except Exception as e:
+                    logger.warning(f"删除图表 {plot_file} 时出错: {e}")
+            if cleaned_plots > 0:
+                logger.info(f"已清理 {cleaned_plots} 个旧的统计图表文件于 {stats_dir}")
+        logger.info("开始前的清理任务完成。")
+
     # 设置设备
     if args.no_cuda:
         device = torch.device("cpu")
