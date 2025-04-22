@@ -62,82 +62,66 @@ def setup_logging(config) -> logging.Logger:
         Logger: 专用于数据处理流程的logger对象
     '''
     try:
-        # 添加第三方库警告过滤
+        # --- Apply warning filters EARLY --- #
         import warnings
         from urllib3.exceptions import NotOpenSSLWarning
         from bs4 import MarkupResemblesLocatorWarning
         warnings.filterwarnings("ignore", category=NotOpenSSLWarning)
         warnings.filterwarnings("ignore", category=MarkupResemblesLocatorWarning)
+        # --- End Warning Filters --- #
 
         # 创建专用logger而非根logger
         processor_logger = logging.getLogger('data_processor')
         processor_logger.propagate = False  # 防止传播到根logger
 
         # 从配置获取参数
-        # Use PROJECT_ROOT to ensure logs are always relative to the project base
         log_dir_relative = config.get("log_dir", "logs")
         log_dir_path = PROJECT_ROOT / log_dir_relative
         log_level_str = config.get("log_level", "INFO").upper()
         log_level = getattr(logging, log_level_str, logging.INFO)
-    
-    # 创建日志目录
-    # log_dir_path = Path(log_dir) # Removed as log_dir_path is now defined above
-    log_dir_path.mkdir(exist_ok=True, parents=True)
+        console_log_level = getattr(logging, config.get("console_log_level", "INFO").upper(), logging.INFO)
 
-    # 清理现有处理器
-    processor_logger.handlers.clear()
+        # 创建日志目录
+        log_dir_path.mkdir(exist_ok=True, parents=True)
 
-    # 结构化日志格式
-    console_format = colorlog.ColoredFormatter(
-        '%(log_color)s[%(asctime)s] %(levelname)-8s %(cyan)s%(name)s:%(lineno)d%(reset)s %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
-    )
-    file_format = logging.Formatter(
-        '[%(asctime)s] %(levelname)-8s %(name)s:%(lineno)d - %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
-    )
+        # 清理现有处理器
+        processor_logger.handlers.clear()
 
-    # --- 控制台处理器（简洁格式）---
-    console_format = "%(log_color)s%(levelname)-8s%(reset)s %(message)s"
-    # Explicitly set stream to stdout
-    console_handler = colorlog.StreamHandler(sys.stdout)
-    console_handler.setFormatter(colorlog.ColoredFormatter(console_format))
-    console_handler.setLevel(logging.INFO)  # 控制台只显示INFO及以上级别
-    
-    # --- 文件处理器（详细格式）---
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_file = log_dir_path / f"processor_{timestamp}.log"
-    file_format = "%(asctime)s - %(name)s - %(levelname)-8s - %(filename)s:%(lineno)d - %(message)s"
-    file_handler = logging.FileHandler(log_file, encoding='utf-8')
-    file_handler.setFormatter(logging.Formatter(file_format, datefmt='%Y-%m-%d %H:%M:%S'))
-    
-    # 添加处理器
-    # Add handlers to the specific logger, not the root logger
-    processor_logger.addHandler(console_handler)
-    processor_logger.addHandler(file_handler)
+        # --- 控制台处理器（极简格式）--- #
+        console_format = "%(message)s" # Only show the message on console
+        console_handler = colorlog.StreamHandler(sys.stdout)
+        console_handler.setFormatter(colorlog.ColoredFormatter(console_format))
+        console_handler.setLevel(console_log_level) # Use configurable console level
 
-    # 抑制第三方库的冗余日志
-    logging.getLogger("urllib3").setLevel(logging.WARNING)
-    logging.getLogger("chardet").setLevel(logging.WARNING)
-    logging.getLogger("spacy").setLevel(logging.WARNING)
+        # --- 文件处理器（详细格式）--- #
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        log_file = log_dir_path / f"processor_{timestamp}.log"
+        # More detailed file format
+        file_format = "%(asctime)s - %(name)s - %(levelname)-8s - %(filename)s:%(lineno)d - %(message)s"
+        file_handler = logging.FileHandler(log_file, encoding='utf-8')
+        file_handler.setFormatter(logging.Formatter(file_format, datefmt='%Y-%m-%d %H:%M:%S'))
+        file_handler.setLevel(logging.DEBUG) # File handler always captures DEBUG and above
 
-    # 添加处理分隔符
-    def log_section_header(logger, title: str, char: str = '=', length: int = 60):
-        logger.info(char * length)
-        logger.info(f'{title.center(length-4)}')
-        logger.info(char * length)
+        # 添加处理器
+        processor_logger.addHandler(console_handler)
+        processor_logger.addHandler(file_handler)
+        processor_logger.setLevel(logging.DEBUG) # Logger base level must be lowest of handlers
 
-    # 记录初始化完成信息
-    log_section_header(processor_logger, '日志系统初始化完成')
-    processor_logger.info(f'日志文件: {log_file}')
-    processor_logger.info(f'日志级别: {log_level_str}')
-    log_section_header(processor_logger, '初始化完成')
+        # 抑制第三方库的冗余日志
+        logging.getLogger("urllib3").setLevel(logging.WARNING)
+        logging.getLogger("chardet").setLevel(logging.WARNING)
+        logging.getLogger("spacy").setLevel(logging.WARNING)
+        # Also suppress BeautifulSoup warnings at logger level if filter doesn't work
+        # logging.getLogger("bs4").setLevel(logging.ERROR) 
+
+        # 记录初始化完成信息 (Simplified for console)
+        processor_logger.info(f'日志系统初始化完成 (日志文件: {log_file}, 控制台级别: {logging.getLevelName(console_log_level)})')
 
         return processor_logger
+
     except Exception as e:
         # 在日志系统设置失败时，打印到stderr
         print(f"Error setting up logging: {e}", file=sys.stderr)
-        # 返回一个基本的、未配置的logger，或者根据需要处理
         return logging.getLogger("processor_fallback")
 
 # --- Load Config ---
@@ -166,9 +150,10 @@ def load_config(config_path: str = "config/config.yaml") -> Dict:
 
         with open(config_file, "r", encoding="utf-8") as f:
             config = yaml.safe_load(f)
-       if logger:
+        if logger:
             logger.info(f"配置文件加载成功: {config_file}")
-            logger.info("应用清洗规则配置：\n%s", "\n".join([f"{k}: {v}" for k,v in config.get('cleaning_rules', {}).items()]))
+            # Log detailed rules only to DEBUG
+            logger.debug("应用清洗规则配置：\n%s", "\n".join([f"{k}: {v}" for k,v in config.get('cleaning_rules', {}).items()]))
         return config
     except Exception as e:
         logger.error(f"加载配置文件失败: {e}")
@@ -188,15 +173,12 @@ def detect_encoding(file_path: str) -> str:
         with open(file_path, 'rb') as f:
             result = chardet.detect(f.read(1024))
         encoding = result['encoding'] or 'utf-8'
-        confidence = result['confidence']
-        # Use tqdm.write for progress-related info if called within loop context
-        # Or keep as debug log if called outside loops
-        # logger.debug(f"检测到文件编码: {encoding} (置信度: {confidence:.2f}) - {file_path}")
+        # Log detection details only to DEBUG
+        # logger.debug(f"检测到文件编码: {encoding} (置信度: {result['confidence']:.2f}) - {file_path}") 
         return encoding
     except Exception as e:
-        # Use logger.warning for issues outside the main processing loop
         if logger:
-             logger.warning(f"编码检测失败，使用默认编码 utf-8: {e} - {file_path}")
+             logger.warning(f"编码检测失败({file_path})，使用默认 utf-8: {e}")
         return 'utf-8'
 
 # --- Read Data ---
@@ -297,11 +279,12 @@ def read_data(input_paths: List[str], file_extensions: List[str],
                                 yield {'texts': batch[:batch_size], 'json_errors': 0}
                                 batch = batch[batch_size:]
                         except json.JSONDecodeError as e:
-                            # Use tqdm.write for non-critical errors inside the loop
-                            tqdm.write(f"[WARN] 无效JSON文件已跳过：{file_path} - {e.msg} (line {e.lineno} col {e.colno})", file=sys.stderr)
-                            json_decode_errors += 1 # Increment local counter for the generator's return
-                            total_json_errors += 1 # Increment global counter (if needed elsewhere)
-                            malformed_files_count += 1 # Count malformed files
+                            # Simplified console warning, more details in log file
+                            logger.warning(f"无效JSON (跳过): {file_path.name} - 原因: {e.msg} (行 {e.lineno})")
+                            logger.debug(f"无效JSON文件详情: {file_path} - {e}") # Full details in log
+                            json_decode_errors += 1
+                            total_json_errors += 1
+                            malformed_files_count += 1
                     elif file_ext == ".jsonl":
                         file_errors = 0
                         for line_num, line in enumerate(f, 1):
@@ -313,12 +296,13 @@ def read_data(input_paths: List[str], file_extensions: List[str],
                                     batch = []
                             except json.JSONDecodeError as e:
                                 file_errors += 1
-                                json_decode_errors += 1 # Increment local counter
-                                total_json_errors += 1 # Increment global counter
-                                # Use tqdm.write for non-critical errors inside the loop
-                                tqdm.write(f"[WARN] 解析JSONL行失败: {file_path} - Line:{line_num} Pos:{e.pos} - Line:'{line.strip()[:50]}...'", file=sys.stderr)
+                                json_decode_errors += 1
+                                total_json_errors += 1
+                                # Simplified console warning
+                                logger.warning(f"无效JSONL行: {file_path.name} 行 {line_num} - 原因: {e.msg}")
+                                logger.debug(f"无效JSONL行详情: {file_path} - Line:{line_num} Pos:{e.pos} - Line:'{line.strip()[:50]}...' - {e}")
                         if file_errors > 0:
-                            malformed_files_count += 1 # Count malformed files
+                            malformed_files_count += 1
                             # Yield remaining batch along with errors from this file
                             # Only yield if there's content in the batch
                             if batch:
@@ -349,7 +333,7 @@ def read_data(input_paths: List[str], file_extensions: List[str],
 
     # Log summary before finishing the generator
     if logger:
-        logger.info(f"文件读取完成. 总JSON解析错误: {json_decode_errors}, 无法处理/格式错误文件数: {malformed_files_count}")
+        logger.info(f"文件读取完成. 发现 {json_decode_errors} 个JSON错误, {malformed_files_count} 个格式错误/无法处理的文件.")
 
     # This return statement is for type hinting and clarity;
     # the actual values are passed via StopIteration when the generator exhausts.
@@ -767,16 +751,16 @@ def main():
      )
      
      # 添加命令行参数
-     parser.add_argument("-i", "--input", nargs='+', 
+    parser.add_argument("-i", "--input", nargs='+', 
                          default=["collection/"], # Default to collection directory
                          help="输入文件或目录路径列表")
-     parser.add_argument("-o", "--output-file", 
+    parser.add_argument("-o", "--output-file", 
                          default="dataset/preprocessed_data.txt", # Default output file
                          help="输出文件路径")
-     parser.add_argument("-f", "--output-format", 
+    parser.add_argument("-f", "--output-format", 
                          choices=["txt", "json", "jsonl"], 
                          help="指定输出文件的格式。可选 'txt', 'json', 'jsonl'。")
-     parser.add_argument("-e", "--extensions", dest="file_extensions", nargs="*", default=[".txt", ".json", ".jsonl"],
+    parser.add_argument("-e", "--extensions", dest="file_extensions", nargs="*", default=[".txt", ".json", ".jsonl"],
                          help="指定要处理的文件扩展名列表。")
 
     # 处理参数组
@@ -820,7 +804,8 @@ def main():
     # --- 初始化日志系统 --- (使用命令行参数和默认值)
     log_config = {
         "log_dir": args.log_dir,
-        "log_level": args.log_level
+        "log_level": args.log_level,
+        "console_log_level": args.log_level # Use same level for console by default, can be overridden in config
     }
     logger = setup_logging(log_config)
     logger.info('\n' + '='*60)

@@ -507,6 +507,17 @@ def compare_directories():
 
 def create_shell_script(dry_run=False):
     """创建统一的日志清理和目录整理shell脚本"""
+    script_path = Path("cleanup.sh")
+    
+    # --- 在创建新脚本前删除旧脚本 --- #
+    if not dry_run and script_path.exists():
+        try:
+            script_path.unlink()
+            logger.info(f"已删除旧的清理脚本: {script_path}")
+        except OSError as e:
+            logger.warning(f"无法删除旧的清理脚本 {script_path}: {e}")
+            # 如果无法删除，可能无法写入新脚本，可以选择继续或退出
+    
     script_content = r"""#!/bin/bash
 
 # 灵猫墨韵系统 - 统一日志和临时文件清理脚本
@@ -573,7 +584,6 @@ fi
 echo "清理完成!"
 """
     
-    script_path = Path("cleanup.sh")
     logger.info(f"创建清理shell脚本: {script_path}")
     
     if not dry_run:
