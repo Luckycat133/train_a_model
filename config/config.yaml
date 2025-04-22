@@ -25,7 +25,7 @@ cleaning_rules:
 
   # PII 编辑 (需要安装 presidio 和 spacy 模型)
   redact_pii: false
-  pii_spacy_model: "en_core_web_lg" # 用于 Presidio 的 Spacy 模型 (例如 en_core_web_lg, zh_core_web_lg)
+  pii_spacy_model: en_core_web_lg # Default spacy model for PII
   pii_entities: # 要检测和编辑的 PII 实体列表 (Presidio 支持的)
     - PERSON
     - PHONE_NUMBER
@@ -36,11 +36,6 @@ cleaning_rules:
     # 添加更多需要的实体...
   pii_redaction_method: "replace" # 可选: 'replace', 'mask', 'hash', 'remove'
   pii_replacement_tag: "[PII]" # 当 method='replace' 时使用
-
-
-  harmful_model_path: null # Hugging Face 模型标识符或本地路径 (例如 "bert-base-uncased-toxicity")
-  harmful_threshold: 0.7 # 模型预测的置信度阈值
-  # harmful_api_key: null # 如果使用第三方 API (例如 Perspective API)
 
   # 质量过滤
   filter_quality: false
@@ -56,6 +51,10 @@ cleaning_rules:
   filter_repetition: false # 是否启用重复过滤
   repetition_ngram_size: 5 # 用于检测重复的 n-gram 大小
   repetition_threshold: 0.3 # 重复 n-gram 的最大比例阈值
+
+  filter_harmful: false # Keep harmful content filtering off by default
+  harmful_categories: ["hate", "sexual", "violence"]
+  harmful_threshold: 0.7
 
 # 内容生成配置
 content_generator:

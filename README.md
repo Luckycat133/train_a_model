@@ -1,66 +1,66 @@
 # My LLM Project | 我的大语言模型项目
 
-[English](./README_en.md) | [中文](./README.md)
+[English](./README.md) | [中文](./README_cn.md)
 
 ---
 
-## 项目概述 | Project Overview
+## Project Overview | 项目概述
 
-这是一个用于训练和开发大语言模型的项目，包含了完整的数据处理、分词、训练和评估流程。项目采用模块化设计，便于扩展和优化。
-
----
-
-## 主要功能 | Key Features
-
-- 数据预处理和清洗
-- 自定义分词器训练
-- 模型训练和优化
-- 性能评估和质量控制
+This is a project for training and developing large language models, including complete data processing, tokenization, training and evaluation workflows. The project adopts a modular design for easy extension and optimization.
 
 ---
 
-## 项目结构 | Project Structure
+## Key Features | 主要功能
+
+- Data preprocessing and cleaning
+- Custom tokenizer training
+- Model training and optimization
+- Performance evaluation and quality control
+
+---
+
+## Project Structure | 项目结构
 
 ```
-├── changelog/       # 更新日志
-├── collection/      # 数据收集
-├── config/          # 配置文件
-├── dataset/         # 数据集
-├── docs/            # 项目文档
-├── model_weights/   # 模型权重
-├── processors/      # 数据处理器
-└── test/            # 测试用例
+├── changelog/       # Change logs
+├── collection/      # Data collection
+├── config/          # Configuration files
+├── dataset/         # Datasets
+├── docs/            # Project documentation
+├── model_weights/   # Model weights
+├── processors/      # Data processors
+└── test/            # Test cases
 ```
 
-### 数据集收集说明
+### Dataset Collection Instructions
 
-本项目数据集主要来源于公开古籍项目（如 Chinese-Poetry），包括约 5.5 万首唐诗、26 万首宋诗、2.1 万首宋词及其他古典文集。所有数据均经过 OCR 纠错、人工校对、标点和段落优化，并统一异体字处理标准。部分数据集还补全了缺失内容，新增了句法结构、词性和语义标注。数据收集和处理流程详见 [数据相关更新日志](./changelog/cn/for_data.md)。
+The dataset for this project mainly comes from public ancient book projects (such as Chinese-Poetry), including about 55,000 Tang poems, 260,000 Song poems, 21,000 Song lyrics, and other classical collections. All data has undergone OCR error correction, manual proofreading, punctuation and paragraph optimization, and unified variant character processing standards. Some datasets have also been supplemented with missing content, added syntactic structure, part-of-speech, and semantic annotations. For details on data collection and processing, see [Data-related Changelog](./changelog/en/for_data.md).
 
-您可以根据上述数据集来源信息，前往对应的开源仓库下载原始数据，也可以按照本项目提供的流程，自行收集和整理适合自己需求的数据集。
+You can download the original data from the corresponding open-source repositories based on the dataset source information above, or you can collect and organize datasets suitable for your needs according to the process provided by this project.
 
-**在开始模型训练前，强烈建议您先运行分词器（tokenizer）相关脚本，完成分词文件的准备。**
+**Before starting model training, it is strongly recommended to run the tokenizer-related scripts to prepare the tokenized files.**
 
 ---
 
-## 快速开始 | Quick Start
+## Quick Start
 
-1. 安装依赖
+1. Install dependencies
 
    ```bash
    pip install -r requirements.txt
    ```
 
-2. 配置环境
+2. Setup environment
 
-   请参考 [安装指南](./docs/cn/installation_guide.md) 或 [Installation Guide](./docs/en/installation_guide.md)
+   Refer to [Installation Guide](./docs/en/installation_guide.md) or [安装指南](./docs/cn/installation_guide.md)
 
-3. 运行分词器
+3. Run the tokenizer
 
    ```bash
    python tokenizer.py
    ```
 
-4. 运行训练
+4. Run training
 
    ```bash
    python train_model.py
@@ -68,69 +68,69 @@
 
 ---
 
-## 文档 | Documentation
+## Documentation | 文档
 
-- [项目概览](./docs/cn/project_overview.md)
-- [目录结构说明](./docs/cn/standards/directory_structure.md)
-- [更新日志](./changelog/cn/)
-
----
-
-## 许可证 | License
-
-本项目基于 MIT 许可证开源。
+- [Project Overview](./docs/en/project_overview.md)
+- [Directory Structure](./docs/en/directory_structure.md)
+- [Change Log](./changelog/en/)
 
 ---
 
-## 教育用途的大模型训练计划
+## License | 许可证
 
-本章节旨在为初学者和教育工作者提供一套系统、可复现的大语言模型训练实践方案，帮助理解和掌握大模型训练的核心流程。
+This project is open source under MIT License.
 
-### 1. 项目目标与教育意义
+---
 
-- 通过亲手实践数据收集、预处理、分词、模型训练与评估，全面了解大模型开发流程。
-- 培养数据工程、机器学习、自然语言处理等多学科交叉能力。
-- 支持课程教学、科研实验和个人能力提升。
+## Educational LLM Training Plan | 教育用途的大模型训练计划
 
-### 2. 数据集准备与收集
+This section provides a systematic and reproducible large language model (LLM) training plan for beginners and educators, helping to understand and master the core workflow of LLM development.
 
-1. 参考“数据集收集说明”章节，选择公开古籍项目或自定义文本数据。
-2. 按照 [数据相关更新日志](./changelog/cn/for_data.md) 流程，完成 OCR 纠错、人工校对、标注等步骤。
-3. 建议整理成标准化的文本格式（如每行为一句、带标签等）。
+### 1. Project Goals and Educational Value
 
-### 3. 分词器运行与数据预处理
+- Practice the full process of data collection, preprocessing, tokenization, model training, and evaluation.
+- Develop interdisciplinary skills in data engineering, machine learning, and natural language processing.
+- Support classroom teaching, research experiments, and personal skill improvement.
 
-1. 运行分词器脚本：
+### 2. Dataset Preparation and Collection
+
+1. Refer to the "Dataset Collection Instructions" section to select public ancient book projects or your own text data.
+2. Follow the [Data-related Changelog](./changelog/en/for_data.md) for OCR correction, manual proofreading, annotation, etc.
+3. It is recommended to organize data in a standardized text format (e.g., one sentence per line, with labels if needed).
+
+### 3. Tokenizer Execution and Data Preprocessing
+
+1. Run the tokenizer script:
 
    ```bash
    python tokenizer.py
    ```
 
-2. 检查输出的分词文件，确保分词效果符合预期。
-3. 可根据需要自定义分词词表或扩展分词规则。
+2. Check the output tokenized files to ensure the results meet expectations.
+3. Customize the vocabulary or extend tokenization rules as needed.
 
-### 4. 模型训练详细流程
+### 4. Detailed Model Training Process
 
-1. 配置训练参数（如模型结构、batch size、学习率等），可参考 `config/config.yaml`。
-2. 启动训练：
+1. Configure training parameters (such as model architecture, batch size, learning rate, etc.), see `config/config.yaml` for reference.
+2. Start training:
 
    ```bash
    python train_model.py
    ```
 
-3. 训练过程中可观察 loss、accuracy 等指标，及时调整参数。
-4. 支持断点续训和多轮实验。
+3. Monitor metrics like loss and accuracy during training and adjust parameters as needed.
+4. Supports checkpointing and multiple rounds of experiments.
 
-### 5. 评估与优化方法
+### 5. Evaluation and Optimization Methods
 
-1. 使用内置评估脚本或自定义评测集，定期评估模型性能。
-2. 分析模型输出，针对性优化数据、模型结构或训练策略。
-3. 记录实验日志，便于复现和对比不同方案。
+1. Use built-in evaluation scripts or custom test sets to regularly assess model performance.
+2. Analyze model outputs and optimize data, model structure, or training strategies accordingly.
+3. Record experiment logs for reproducibility and comparison.
 
-### 6. 复现与扩展建议
+### 6. Reproducibility and Extension Suggestions
 
-- 建议每一步操作均保留脚本和配置，方便他人复现。
-- 可尝试不同分词方法、模型结构或数据增强技术，探索最佳实践。
-- 鼓励将实验结果整理成报告或教学案例，促进交流与分享。
+- Keep scripts and configurations for each step to facilitate reproducibility.
+- Try different tokenization methods, model architectures, or data augmentation techniques to explore best practices.
+- Summarize experiment results into reports or teaching cases to promote sharing and communication.
 
-如需进一步指导，请查阅项目文档或在 Issues 区提问。祝学习愉快！
+For further guidance, please refer to the project documentation or raise questions in the Issues section. Happy learning!

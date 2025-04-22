@@ -1,4 +1,8 @@
 # 分词器更新日志
+
+[English](../en/for_tokenizer.md) | [中文](./for_tokenizer.md)
+
+---
 ## [v0.3.8] - 2025-04-13
 ### 新增功能
 - 添加对特殊字符和emoji的分词支持

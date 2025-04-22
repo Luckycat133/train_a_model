@@ -444,6 +444,14 @@ class ClassicalTokenizer:
 
         # 将语料写入临时文件，同时显示处理进度
         temp_corpus = "temp_corpus.txt"
+        # --- 清理旧的临时语料文件 --- #
+        if os.path.exists(temp_corpus):
+            try:
+                os.remove(temp_corpus)
+                logger.info(f"已删除旧的临时语料文件: {temp_corpus}")
+            except OSError as e:
+                logger.warning(f"无法删除旧的临时语料文件 {temp_corpus}: {e}")
+        # --- 文件写入和训练 --- #
         try:
             with open(temp_corpus, "w", encoding="utf-8") as f:
                 for line in tqdm(corpus_lines, desc="准备语料库"):

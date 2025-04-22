@@ -1,26 +1,30 @@
 # My LLM Project Documentation
 
+[English](./DOCS_en.md) | [中文](../cn/DOCS_cn.md)
+
+---
+
 ## Documentation Overview
 
 This document provides a complete guide to the My LLM project, including module usage, training process, and generation methods.
 
 ## Module Guides
 
-- [Project Overview](docs/project_overview.md) - Project introduction and architecture
-- [Technical Architecture](docs/technical_architecture.md) - Detailed technical architecture and data flow
-- [System Architecture Design](docs/design_docs/system_architecture.md) - System architecture and module relationships
-- [Installation Guide](docs/installation/installation_guide.md) - Installation steps and environment configuration
-- [Training Module Guide](docs/train_model_guide.md) - Model training methods and parameter configuration
-- [Generation Module Guide](docs/generate_guide.md) - Text generation using the model
-- [Processor Guide](docs/processor_guide.md) - Data preprocessing tools
-- [Tokenizer Guide](docs/tokenizer_guide.md) - Tokenizer training and usage
-- [Scripts Guide](docs/scripts_guide.md) - Auxiliary script functions
-- [Cleanup Guide](docs/cleanup_guide.md) - Project cleanup and space optimization
-- [Project Maintenance Guide](docs/project_maintenance.md) - Project volume management
+- [Project Overview](./project_overview.md) - Project introduction and architecture
+- [Technical Architecture](./technical_architecture.md) - Detailed technical architecture and data flow
+- [System Architecture Design](./design_docs/system_architecture.md) - System architecture and module relationships
+- [Installation Guide](./installation/installation_guide.md) - Installation steps and environment configuration
+- [Training Module Guide](./train_model_guide.md) - Model training methods and parameter configuration
+- [Generation Module Guide](./generate_guide.md) - Text generation using the model
+- [Processor Guide](./processor_guide.md) - Data preprocessing tools
+- [Tokenizer Guide](./tokenizer_guide.md) - Tokenizer training and usage
+- [Scripts Guide](./scripts_guide.md) - Auxiliary script functions
+- [Cleanup Guide](./cleanup_guide.md) - Project cleanup and space optimization
+- [Project Maintenance Guide](./project_maintenance.md) - Project volume management
 
 ## Best Practices
 
-- [Training Optimization Best Practices](docs/best_practices/training_optimization.md) - Training optimization guide
+- [Training Optimization Best Practices](./best_practices/training_optimization.md) - Training optimization guide
   - Hardware optimization strategies
   - Hyperparameter tuning guide
   - Training stability optimization
@@ -28,25 +32,25 @@ This document provides a complete guide to the My LLM project, including module 
 
 ## Code Explanation
 
-- [Training Module Code](docs/code_explanation/train_model_code.md) - Training module core code
-- [Tokenizer Code](docs/code_explanation/tokenizer_code.md) - Tokenizer module implementation
-- [Processor Code](docs/code_explanation/processor_code.md) - Processor module architecture
+- [Training Module Code](./code_explanation/train_model_code.md) - Training module core code
+- [Tokenizer Code](./code_explanation/tokenizer_code.md) - Tokenizer module implementation
+- [Processor Code](./code_explanation/processor_code.md) - Processor module architecture
 
 ## Changelog
 
-- [Training Module Updates](changelog/for_train_model.md) - Training feature updates
-- [Processor Updates](changelog/for_processor.md) - Processor feature history
-- [Tokenizer Updates](changelog/for_tokenizer.md) - Tokenizer iteration records
-- [Data Module Updates](changelog/for_data.md) - Data processing updates
-- [Cleanup Tool Updates](changelog/for_cleanup.md) - Cleanup tool updates
+- [Training Module Updates](../../changelog/en/for_train_model.md) - Training feature updates
+- [Processor Updates](../../changelog/en/for_processor.md) - Processor feature history
+- [Tokenizer Updates](../../changelog/en/for_tokenizer.md) - Tokenizer iteration records
+- [Data Module Updates](../../changelog/en/for_data.md) - Data processing updates
+- [Cleanup Tool Updates](../../changelog/en/for_cleanup.md) - Cleanup tool updates
 
 ## Documentation Index
 
-All document details can be found in the [Document Index](docs/INDEX.md).
+All document details can be found in the [Document Index](./INDEX.md).
 
 ## Configuration Reference
 
-Project configuration examples and parameter descriptions can be found in [Configuration Example](config/config.yaml).
+Project configuration examples and parameter descriptions can be found in [Configuration Example](../../config/config.yaml).
 
 ## Documentation Structure
 
@@ -85,20 +89,20 @@ My_LLM/
 
 ## Core Documents
 
-- [README.md](./README.md) - Project overview and quick start
-- [docs/project_overview.md](./docs/project_overview.md) - Detailed project description
-- [docs/technical_architecture.md](./docs/technical_architecture.md) - Technical architecture
-- [docs/design_docs/system_architecture.md](./docs/design_docs/system_architecture.md) - System architecture
-- [docs/installation/installation_guide.md](./docs/installation/installation_guide.md) - Installation guide
-- [docs/train_model_guide.md](./docs/train_model_guide.md) - Detailed training guide
-- [docs/generate_guide.md](./docs/generate_guide.md) - Text generation guide
-- [docs/best_practices/training_optimization.md](./docs/best_practices/training_optimization.md) - Training best practices
-- [docs/INDEX.md](./docs/INDEX.md) - Complete document index
+- [README.md](../../README.md) - Project overview and quick start
+- [docs/project_overview.md](./project_overview.md) - Detailed project description
+- [docs/technical_architecture.md](./technical_architecture.md) - Technical architecture
+- [docs/design_docs/system_architecture.md](./design_docs/system_architecture.md) - System architecture
+- [docs/installation/installation_guide.md](./installation/installation_guide.md) - Installation guide
+- [docs/train_model_guide.md](./train_model_guide.md) - Detailed training guide
+- [docs/generate_guide.md](./generate_guide.md) - Text generation guide
+- [docs/best_practices/training_optimization.md](./best_practices/training_optimization.md) - Training best practices
+- [docs/INDEX.md](./INDEX.md) - Complete document index
 
 ## Version Changelog
 
-- [changelog/en/for_train_model.md](./changelog/en/for_train_model.md) - Training updates
-- [changelog/en/for_cleanup.md](./changelog/en/for_cleanup.md) - Cleanup updates
+- [changelog/en/for_train_model.md](../../changelog/en/for_train_model.md) - Training updates
+- [changelog/en/for_cleanup.md](../../changelog/en/for_cleanup.md) - Cleanup updates
 
 ## Recent Updates
 

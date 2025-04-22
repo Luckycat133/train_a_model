@@ -1,5 +1,9 @@
 # 处理器更新日志
 
+[English](../en/for_processor.md) | [中文](./for_processor.md)
+
+---
+
 ## [v2.4.0] - 2024-04-18
 ### ✨ 功能增强 (预训练数据质量提升)
 

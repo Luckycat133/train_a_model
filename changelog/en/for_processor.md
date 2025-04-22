@@ -1,5 +1,9 @@
 # Processor Changelog
 
+[English](./for_processor.md) | [中文](../cn/for_processor.md)
+
+---
+
 ## [v2.4.0] - 2024-04-18
 ### ✨ Feature Enhancement (Pre-training Data Quality Improvement)
 

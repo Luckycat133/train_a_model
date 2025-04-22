@@ -1,5 +1,9 @@
 # 安装指南
 
+[English](../en/installation_guide.md) | [中文](./installation_guide.md)
+
+---
+
 ## 系统要求
 
 - Python 3.8 或更高版本
@@ -19,7 +23,7 @@ pip install -r requirements.txt
 ```
 
 3. 配置环境
-- 根据您的硬件配置修改 `config/config.yaml` 文件
+- 根据您的硬件配置修改 `../../config/config.yaml` 文件
 
 4. 验证安装
 ```bash
