@@ -1,5 +1,9 @@
 # Installation Guide
 
+[English](./installation_guide.md) | [中文](../cn/installation_guide.md)
+
+---
+
 ## System Requirements
 
 - Python 3.8 or higher
@@ -19,7 +23,7 @@ pip install -r requirements.txt
 ```
 
 3. Configure environment
-- Modify `config/config.yaml` file according to your hardware configuration
+- Modify `../../config/config.yaml` file according to your hardware configuration
 
 4. Verify installation
 ```bash

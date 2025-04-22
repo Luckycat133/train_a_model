@@ -1,26 +1,30 @@
 # 灵猫墨韵项目文档
 
+[English](../en/DOCS_en.md) | [中文](./DOCS_cn.md)
+
+---
+
 ## 文档概览
 
 本项目文档提供了灵猫墨韵大语言模型项目的完整指南，包括各个模块的使用方法、训练流程、生成方法等内容。
 
 ## 模块指南
 
-- [项目概述](docs/project_overview.md) - 项目整体介绍和架构说明
-- [技术架构](docs/technical_architecture.md) - 技术架构详细说明与数据流
-- [系统架构设计](docs/design_docs/system_architecture.md) - 系统架构详细设计与模块关系
-- [安装指南](docs/installation/installation_guide.md) - 不同系统的安装步骤与环境配置
-- [训练模块指南](docs/train_model_guide.md) - 模型训练方法与参数配置
-- [生成模块指南](docs/generate_guide.md) - 使用模型进行文本生成
-- [处理器指南](docs/processor_guide.md) - 数据预处理工具使用说明
-- [分词器指南](docs/tokenizer_guide.md) - 分词器训练与使用方法
-- [脚本使用指南](docs/scripts_guide.md) - 辅助脚本功能说明
-- [清理工具指南](docs/cleanup_guide.md) - 项目清理与空间优化工具
-- [项目维护指南](docs/project_maintenance.md) - 项目体积管理和清理方法
+- [项目概述](./project_overview.md) - 项目整体介绍和架构说明
+- [技术架构](./technical_architecture.md) - 技术架构详细说明与数据流
+- [系统架构设计](./design_docs/system_architecture.md) - 系统架构详细设计与模块关系
+- [安装指南](./installation/installation_guide.md) - 不同系统的安装步骤与环境配置
+- [训练模块指南](./train_model_guide.md) - 模型训练方法与参数配置
+- [生成模块指南](./generate_guide.md) - 使用模型进行文本生成
+- [处理器指南](./processor_guide.md) - 数据预处理工具使用说明
+- [分词器指南](./tokenizer_guide.md) - 分词器训练与使用方法
+- [脚本使用指南](./scripts_guide.md) - 辅助脚本功能说明
+- [清理工具指南](./cleanup_guide.md) - 项目清理与空间优化工具
+- [项目维护指南](./project_maintenance.md) - 项目体积管理和清理方法
 
 ## 最佳实践指南
 
-- [训练优化最佳实践](docs/best_practices/training_optimization.md) - 模型训练优化指南
+- [训练优化最佳实践](./best_practices/training_optimization.md) - 模型训练优化指南
   - 硬件优化策略
   - 超参数调优指南
   - 训练稳定性优化
@@ -28,25 +32,25 @@
 
 ## 代码详解
 
-- [训练模块代码解析](docs/code_explanation/train_model_code.md) - 训练模块核心代码详解
-- [分词器代码解析](docs/code_explanation/tokenizer_code.md) - 分词器模块实现分析
-- [处理器代码解析](docs/code_explanation/processor_code.md) - 处理器模块架构解析
+- [训练模块代码解析](./code_explanation/train_model_code.md) - 训练模块核心代码详解
+- [分词器代码解析](./code_explanation/tokenizer_code.md) - 分词器模块实现分析
+- [处理器代码解析](./code_explanation/processor_code.md) - 处理器模块架构解析
 
 ## 更新日志
 
-- [训练模块更新](changelog/for_train_model.md) - 训练相关功能更新记录
-- [处理器更新](changelog/for_processor.md) - 处理器功能更新历史
-- [分词器更新](changelog/for_tokenizer.md) - 分词器迭代记录
-- [数据模块更新](changelog/for_data.md) - 数据处理模块更新历史
-- [清理工具更新](changelog/for_cleanup.md) - 清理工具功能更新历史
+- [训练模块更新](../../changelog/cn/for_train_model.md) - 训练相关功能更新记录
+- [处理器更新](../../changelog/cn/for_processor.md) - 处理器功能更新历史
+- [分词器更新](../../changelog/cn/for_tokenizer.md) - 分词器迭代记录
+- [数据模块更新](../../changelog/cn/for_data.md) - 数据处理模块更新历史
+- [清理工具更新](../../changelog/cn/for_cleanup.md) - 清理工具功能更新历史
 
 ## 文档索引
 
-所有文档的详细目录可在[文档索引](docs/INDEX.md)中查找。
+所有文档的详细目录可在[文档索引](./INDEX.md)中查找。
 
 ## 配置参考
 
-项目配置文件示例及详细参数说明请参阅[配置示例](config/config.yaml)。
+项目配置文件示例及详细参数说明请参阅[配置示例](../../config/config.yaml)。
 
 ## 文档结构
 
@@ -85,20 +89,20 @@ My_LLM/
 
 ## 核心文档
 
-- [README.md](./README.md) - 项目概述、快速入门和主要功能介绍
-- [docs/project_overview.md](./docs/project_overview.md) - 项目详细说明文档
-- [docs/technical_architecture.md](./docs/technical_architecture.md) - 技术架构详解
-- [docs/design_docs/system_architecture.md](./docs/design_docs/system_architecture.md) - 系统架构设计
-- [docs/installation/installation_guide.md](./docs/installation/installation_guide.md) - 安装指南
-- [docs/train_model_guide.md](./docs/train_model_guide.md) - 详细的模型训练指南
-- [docs/generate_guide.md](./docs/generate_guide.md) - 文本生成功能使用指南
-- [docs/best_practices/training_optimization.md](./docs/best_practices/training_optimization.md) - 训练优化最佳实践
-- [docs/INDEX.md](./docs/INDEX.md) - 文档完整索引
+- [README.md](../../README.md) - 项目概述、快速入门和主要功能介绍
+- [docs/project_overview.md](./project_overview.md) - 项目详细说明文档
+- [docs/technical_architecture.md](./technical_architecture.md) - 技术架构详解
+- [docs/design_docs/system_architecture.md](./design_docs/system_architecture.md) - 系统架构设计
+- [docs/installation/installation_guide.md](./installation/installation_guide.md) - 安装指南
+- [docs/train_model_guide.md](./train_model_guide.md) - 详细的模型训练指南
+- [docs/generate_guide.md](./generate_guide.md) - 文本生成功能使用指南
+- [docs/best_practices/training_optimization.md](./best_practices/training_optimization.md) - 训练优化最佳实践
+- [docs/INDEX.md](./INDEX.md) - 文档完整索引
 
 ## 版本更新日志
 
-- [changelog/for_train_model.md](./changelog/for_train_model.md) - 训练模块更新日志
-- [changelog/for_cleanup.md](./changelog/for_cleanup.md) - 清理工具更新日志
+- [changelog/cn/for_train_model.md](../../changelog/cn/for_train_model.md) - 训练模块更新日志
+- [changelog/cn/for_cleanup.md](../../changelog/cn/for_cleanup.md) - 清理工具更新日志
 
 ## 最近更新
 
@@ -115,4 +119,4 @@ My_LLM/
 
 ---
 
-*文档最后更新: 2025年3月18日* 
+*文档最后更新: 2025年3月18日*

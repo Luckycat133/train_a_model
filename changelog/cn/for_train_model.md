@@ -1,5 +1,9 @@
 # 训练模块 (train_model.py) 更新日志
 
+[English](../en/for_train_model.md) | [中文](./for_train_model.md)
+
+---
+
 ## [v0.8.6] - 2025-04-10
 ### 测试代码增强
 - 创建全面的测试脚本(test_train_model.py)用于模型训练功能测试

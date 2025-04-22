@@ -1,5 +1,9 @@
 # Training Module (train_model.py) Changelog
 
+[English](./for_train_model.md) | [中文](../cn/for_train_model.md)
+
+---
+
 ## [v0.8.6] - 2025-04-10
 ### Test Code Enhancement
 - Created comprehensive test script (test_train_model.py) for model training functionality

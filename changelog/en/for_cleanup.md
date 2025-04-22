@@ -2,6 +2,8 @@
 
 [English](./for_cleanup.md) | [中文](../cn/for_cleanup.md)
 
+---
+
 ## [v0.3.1] - 2025-03-14
 ### Documentation & Integration Enhancement
 - **User Documentation Improvement**

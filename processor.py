@@ -132,9 +132,6 @@ def setup_logging(config) -> logging.Logger:
     processor_logger.info(f'日志文件: {log_file}')
     processor_logger.info(f'日志级别: {log_level_str}')
     log_section_header(processor_logger, '初始化完成')
-    processor_logger.info(f'日志文件: {log_file}')
-    processor_logger.info(f'日志级别: {log_level_str}')
-    log_section_header(processor_logger, '初始化完成')
 
         return processor_logger
     except Exception as e:
@@ -583,8 +580,7 @@ def pii_redactor(text: str, rules: Dict[str, Any]) -> str:
 # --- Quality Filtering Helpers ---
 def detect_language(text: str, rules: Dict[str, Any]) -> Optional[str]:
     """Detects the language of the text."""
--   method = rules.get("lang_detection_method", "langdetect")
-+   method = rules.get("lang_detection_method", "langdetect") # Use .get for safety
+    method = rules.get("lang_detection_method", "langdetect")
     
     if method == "langdetect":
         try:
@@ -598,8 +594,7 @@ def detect_language(text: str, rules: Dict[str, Any]) -> Optional[str]:
             logger.warning(f"Error during langdetect: {e}")
             return None
     elif method == "fasttext":
--       model_path = rules.get("fasttext_model_path")
-+       model_path = rules.get("fasttext_model_path") # Use .get for safety
+        model_path = rules.get("fasttext_model_path")
         if not model_path or not Path(model_path).exists():
             logger.warning(f"FastText model path '{model_path}' not found or not specified. Cannot detect language.")
             return None
@@ -656,24 +651,15 @@ def check_repetition(text: str, ngram_size: int, threshold: float) -> bool:
 
 # --- Process Batch ---
 def process_batch(batch: List[str], cleaning_rules: Dict[str, Any] = None) -> List[Tuple[str, str]]:
--   """处理一批文本数据
--   
--   Args:
--       batch: 文本数据批次
--       cleaning_rules: 清洗和过滤规则
--       
--   Returns:
--       处理后的文本及其哈希值列表 (过滤掉的文本不包含在内)
--   """
-+   """处理一批文本数据，应用清洗规则并计算哈希值。
-+ 
-+   Args:
-+       batch: 文本数据批次。
-+       cleaning_rules: 清洗和过滤规则字典。
-+ 
-+   Returns:
-+       处理后的文本及其MD5哈希值列表 (过滤掉的文本不包含在内)。
-+   """
+    """处理一批文本数据，应用清洗规则并计算哈希值。
+    
+    Args:
+        batch: 文本数据批次。
+        cleaning_rules: 清洗和过滤规则字典。
+        
+    Returns:
+        处理后的文本及其MD5哈希值列表 (过滤掉的文本不包含在内)。
+    """
     results = []
     # Apply cleaning rules within the batch processing
     # This part seems correct, just ensuring cleaning_rules are passed
@@ -782,12 +768,10 @@ def main():
      
      # 添加命令行参数
      parser.add_argument("-i", "--input", nargs='+', 
--                        default=["collection"], 
-+                        default=["collection/"], # Default to collection directory
+                         default=["collection/"], # Default to collection directory
                          help="输入文件或目录路径列表")
      parser.add_argument("-o", "--output-file", 
--                        default="dataset/preprocessed_data.txt", 
-+                        default="dataset/preprocessed_data.txt", # Default output file
+                         default="dataset/preprocessed_data.txt", # Default output file
                          help="输出文件路径")
      parser.add_argument("-f", "--output-format", 
                          choices=["txt", "json", "jsonl"], 
@@ -848,6 +832,18 @@ def main():
     if not config:
         logger.error("无法加载配置，使用默认值和命令行参数。")
         config = {} # Ensure config is a dict
+
+    # --- 清理之前的输出文件 --- #
+    output_file_path = PROJECT_ROOT / args.output_file
+    if output_file_path.exists():
+        logger.warning(f"警告：输出文件 '{args.output_file}' 已存在，将被覆盖。")
+        try:
+            output_file_path.unlink()
+            logger.info(f"已删除旧的输出文件: {args.output_file}")
+        except OSError as e:
+            logger.error(f"无法删除旧的输出文件 '{args.output_file}': {e}", exc_info=True)
+            # 根据需要决定是否退出
+            # sys.exit(1)
 
     # --- 合并配置与命令行参数 --- #
     # 命令行参数优先覆盖 config.yaml 中的 cleaning_rules
