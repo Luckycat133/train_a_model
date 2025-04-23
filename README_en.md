@@ -1,16 +1,16 @@
-# My LLM Project | 我的大语言模型项目
+# My LLM Project
 
 [English](./README_en.md) | [Chinese](./README.md)
 
 ---
 
-## Project Overview | 项目概述
+## Project Overview
 
 This is a project for training and developing large language models, including complete data processing, tokenization, training and evaluation workflows. The project adopts a modular design for easy extension and optimization.
 
 ---
 
-## Key Features | 主要功能
+## Key Features
 
 - Data preprocessing and cleaning
 - Custom tokenizer training
@@ -19,7 +19,7 @@ This is a project for training and developing large language models, including c
 
 ---
 
-## Project Structure | 项目结构
+## Project Structure
 
 ```
 ├── changelog/       # Change logs
@@ -68,7 +68,7 @@ You can download the original data from the corresponding open-source repositori
 
 ---
 
-## Documentation | 文档
+## Documentation
 
 - [Project Overview](./docs/en/project_overview.md)
 - [Directory Structure](./docs/en/directory_structure.md)
@@ -76,13 +76,13 @@ You can download the original data from the corresponding open-source repositori
 
 ---
 
-## License | 许可证
+## License
 
 This project is open source under MIT License.
 
 ---
 
-## Educational LLM Training Plan | 教育用途的大模型训练计划
+## Educational LLM Training Plan
 
 This section provides a systematic and reproducible large language model (LLM) training plan for beginners and educators, helping to understand and master the core workflow of LLM development.
 

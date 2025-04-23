@@ -1,16 +1,16 @@
-# My LLM Project | 我的大语言模型项目
+# My LLM Project
 
 [English](./README.md) | [中文](./README_cn.md)
 
 ---
 
-## 项目概述 | Project Overview
+## 项目概述
 
 这是一个用于训练和开发大语言模型的项目，包含了完整的数据处理、分词、训练和评估流程。项目采用模块化设计，便于扩展和优化。
 
 ---
 
-## 主要功能 | Key Features
+## 主要功能
 
 - 数据预处理和清洗
 - 自定义分词器训练
@@ -19,7 +19,7 @@
 
 ---
 
-## 项目结构 | Project Structure
+## 项目结构
 
 ```
 ├── changelog/       # 更新日志
@@ -42,8 +42,7 @@
 
 ---
 
-## 快速开始 | Quick Start
-
+## 快速开始
 1. 安装依赖
 
    ```bash
@@ -68,7 +67,7 @@
 
 ---
 
-## 文档 | Documentation
+## 文档
 
 - [项目概览](./docs/cn/project_overview.md)
 - [目录结构说明](./docs/cn/standards/directory_structure.md)
@@ -76,7 +75,7 @@
 
 ---
 
-## 许可证 | License
+## 许可证
 
 本项目基于 MIT 许可证开源。
 
