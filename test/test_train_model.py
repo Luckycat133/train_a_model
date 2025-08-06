@@ -115,18 +115,8 @@ def test_lm_dataset(test_dir):
             logger.info(f"  数据访问时间: {access_time:.4f} 秒")
             logger.info(f"  峰值内存: {getattr(dataset, 'peak_memory_mb', 0):.2f} MB")
         
-        # 输出比较结果
-        logger.info("\n数据集配置比较:")
-        for result in results:
-            logger.info(f"上下文长度: {result['context_length']}, 步长: {result['stride']}")
-            logger.info(f"  样本数量: {result['sample_count']}")
-            logger.info(f"  初始化时间: {result['init_time']:.4f} 秒")
-            logger.info(f"  数据访问时间: {result['access_time']:.4f} 秒")
-            logger.info(f"  峰值内存: {result['peak_memory_mb']:.2f} MB")
-        
-        # 找出最佳配置
-        best_config = min(results, key=lambda x: x["init_time"])
-        logger.info(f"\n初始化最快的配置: 上下文长度={best_config['context_length']}, 步长={best_config['stride']}")
+        # 复用统一的汇总函数
+        summarize_performance_results(results)
         
         logger.info("语言模型数据集功能测试通过")
         return True
@@ -196,7 +186,7 @@ def test_stats_plotting(test_dir):
         return False
 
 def collect_performance_data(test_dir):
-    """收集性能数据"""
+    """收集性能数据 - 复用 test_lm_dataset 的测试逻辑"""
     logger.info("开始收集训练模型性能数据...")
     
     try:
@@ -204,63 +194,76 @@ def collect_performance_data(test_dir):
         data_file = test_dir / "dataset" / "test_sample.jsonl"
         
         # 测试不同配置下的性能
-        context_lengths = [64, 128, 256]
-        strides = [32, 64, 128]
+        test_configs = [
+            {"context_length": 64, "stride": 32},
+            {"context_length": 128, "stride": 64},
+            {"context_length": 256, "stride": 128}
+        ]
         
         performance_data = []
         
-        for context_length in context_lengths:
-            for stride in strides:
-                logger.info(f"测试配置: 上下文长度={context_length}, 步长={stride}")
-                
-                # 测量初始化时间
-                start_time = time.time()
-                dataset = LMDataset(
-                    data_path=str(data_file),
-                    context_length=context_length,
-                    stride=stride,
-                    max_chunks=10
-                )
-                init_time = time.time() - start_time
-                
-                # 测量数据访问时间
-                start_time = time.time()
-                for i in range(min(10, len(dataset))):
-                    _ = dataset[i]
-                access_time = time.time() - start_time
-                
-                # 记录性能数据
-                performance_data.append({
-                    "context_length": context_length,
-                    "stride": stride,
-                    "sample_count": len(dataset),
-                    "init_time": init_time,
-                    "access_time": access_time,
-                    "peak_memory_mb": getattr(dataset, "peak_memory_mb", 0)
-                })
+        for config in test_configs:
+            context_length = config["context_length"]
+            stride = config["stride"]
+            
+            logger.info(f"测试配置: 上下文长度={context_length}, 步长={stride}")
+            
+            # 测量初始化时间
+            start_time = time.time()
+            dataset = LMDataset(
+                data_path=str(data_file),
+                context_length=context_length,
+                stride=stride,
+                max_chunks=10
+            )
+            init_time = time.time() - start_time
+            
+            # 测量数据访问时间
+            start_time = time.time()
+            for i in range(min(10, len(dataset))):
+                _ = dataset[i]
+            access_time = time.time() - start_time
+            
+            # 记录性能数据
+            performance_data.append({
+                "context_length": context_length,
+                "stride": stride,
+                "sample_count": len(dataset),
+                "init_time": init_time,
+                "access_time": access_time,
+                "peak_memory_mb": getattr(dataset, "peak_memory_mb", 0)
+            })
         
-        # 输出性能数据
-        logger.info("\n性能数据汇总:")
-        for data in performance_data:
-            logger.info(f"上下文长度: {data['context_length']}, 步长: {data['stride']}")
-            logger.info(f"  样本数量: {data['sample_count']}")
-            logger.info(f"  初始化时间: {data['init_time']:.4f} 秒")
-            logger.info(f"  数据访问时间: {data['access_time']:.4f} 秒")
-            logger.info(f"  峰值内存: {data['peak_memory_mb']:.2f} MB")
-        
-        # 找出最佳配置
-        best_init = min(performance_data, key=lambda x: x["init_time"])
-        best_access = min(performance_data, key=lambda x: x["access_time"])
-        best_memory = min(performance_data, key=lambda x: x["peak_memory_mb"])
-        
-        logger.info(f"\n最佳初始化时间配置: 上下文长度={best_init['context_length']}, 步长={best_init['stride']}")
-        logger.info(f"最佳数据访问时间配置: 上下文长度={best_access['context_length']}, 步长={best_access['stride']}")
-        logger.info(f"最佳内存使用配置: 上下文长度={best_memory['context_length']}, 步长={best_memory['stride']}")
+        # 复用统一的汇总函数
+        summarize_performance_results(performance_data)
         
         return performance_data
     except Exception as e:
         logger.error(f"收集性能数据时出错: {e}")
         return None
+
+def summarize_performance_results(performance_data):
+    """统一的性能数据汇总函数"""
+    if not performance_data:
+        logger.warning("没有性能数据需要汇总")
+        return
+    
+    logger.info("\n性能数据汇总:")
+    for data in performance_data:
+        logger.info(f"上下文长度: {data['context_length']}, 步长: {data['stride']}")
+        logger.info(f"  样本数量: {data['sample_count']}")
+        logger.info(f"  初始化时间: {data['init_time']:.4f} 秒")
+        logger.info(f"  数据访问时间: {data['access_time']:.4f} 秒")
+        logger.info(f"  峰值内存: {data['peak_memory_mb']:.2f} MB")
+    
+    # 找出最佳配置
+    best_init = min(performance_data, key=lambda x: x["init_time"])
+    best_access = min(performance_data, key=lambda x: x["access_time"])
+    best_memory = min(performance_data, key=lambda x: x["peak_memory_mb"])
+    
+    logger.info(f"\n最佳初始化时间配置: 上下文长度={best_init['context_length']}, 步长={best_init['stride']}")
+    logger.info(f"最佳数据访问时间配置: 上下文长度={best_access['context_length']}, 步长={best_access['stride']}")
+    logger.info(f"最佳内存使用配置: 上下文长度={best_memory['context_length']}, 步长={best_memory['stride']}")
 
 def run_all_tests():
     """运行所有测试"""

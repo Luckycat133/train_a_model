@@ -758,8 +758,8 @@ def main():
                          default="dataset/preprocessed_data.txt", # Default output file
                          help="输出文件路径")
     parser.add_argument("-f", "--output-format", 
-                         choices=["txt", "json", "jsonl"], 
-                         help="指定输出文件的格式。可选 'txt', 'json', 'jsonl'。")
+                         choices=["txt", "jsonl"], 
+                         help="指定输出文件的格式。可选 'txt', 'jsonl'。json 格式暂不支持流式写入，请使用 txt 或 jsonl。")
     parser.add_argument("-e", "--extensions", dest="file_extensions", nargs="*", default=[".txt", ".json", ".jsonl"],
                          help="指定要处理的文件扩展名列表。")
 
@@ -1009,42 +1009,30 @@ def main():
                                                 f_out.write(f"{text}\n")
                                             elif args.output_format == "jsonl":
                                                 f_out.write(json.dumps({"text": text}, ensure_ascii=False) + "\n")
-                                            elif args.output_format == "json":
-                                                # JSON requires collecting all results first, less ideal for large datasets
-                                                # Consider warning or disallowing this for large files
-                                                # For now, we handle it but it's inefficient
-                                                pass # Handled after loop for json
+
                                             total_texts_processed += 1
-                                # Update pbar manually based on completed futures if needed, though file-based is better
-                                # pbar.update(1) # This would track completed batches/futures, not files
                             except Exception as e:
                                 logger.error(f"处理批次时出错: {e}", exc_info=True)
                             futures.remove(future) # Remove completed future
-                            # Update pbar based on the generator's internal progress
-                            # This relies on the generator yielding batches corresponding somewhat to files
-                            pbar.update(1) # Increment pbar for each file processed by the generator (approximated)
-                            pbar.set_postfix(malformed=total_malformed_files_returned, json_err=total_json_errors_returned, unique=len(unique_hashes), refresh=True)
+                            
+                        # Update progress based on files processed by generator
+                        # This is more accurate than tracking futures
+                        if generator_finished and not futures:
+                            # All done, ensure pbar is complete
+                            if pbar.n < total_files_found:
+                                pbar.update(total_files_found - pbar.n)
+                        elif 'data_batch' in locals() and data_batch:
+                            # Update based on actual files in this batch
+                            files_in_batch = len(data_batch.get('texts', []))
+                            pbar.update(files_in_batch)
+                        
+                        pbar.set_postfix(malformed=total_malformed_files_returned, json_err=total_json_errors_returned, unique=len(unique_hashes), refresh=True)
 
                         # Break outer loop if generator is done and all futures processed
                         if generator_finished and not futures:
                             break
 
-            # Handle JSON output (requires collecting all unique texts first)
-            if args.output_format == "json":
-                logger.warning("JSON output format requires loading all unique results into memory.")
-                # Re-open in write mode, overwriting previous writes if any
-                with open(output_path, 'w', encoding='utf-8') as f_out_json:
-                    # Need to store unique texts if using JSON output
-                    unique_text_list = []
-                    # This requires re-reading the temp output or storing in memory - inefficient
-                    # A better approach for JSON would be needed for large scale.
-                    # For now, assuming unique_hashes holds hashes, not text. We need the text.
-                    # Let's re-read the temp file if it was txt/jsonl or store in memory.
-                    # Simplification: We'll assume unique_hashes contained the text for demo, which is wrong.
-                    # Correct implementation would need storing unique texts in memory or a temp DB.
-                    logger.error("JSON output format is not efficiently implemented for streaming. Please use txt or jsonl.")
-                    # json_data = [{"text": text} for text in unique_texts_placeholder]
-                    # json.dump(json_data, f_out_json, ensure_ascii=False, indent=2)
+
 
     except Exception as e:
         logger.error(f"处理过程中发生未捕获的异常: {e}", exc_info=True)

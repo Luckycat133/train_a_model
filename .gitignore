@@ -3,10 +3,13 @@ __pycache__/
 *.py[cod]
 *$py.class
 **/__pycache__/
+.cache/
 
 # 系统文件
 .DS_Store
 Thumbs.db
+*.swp
+*.swo
 
 # 临时文件和日志
 temp/
@@ -16,6 +19,11 @@ cleanup_temp/
 temp_corpus.txt
 *.corpus
 *.corpus.txt
+temp_*
+*.tmp
+*.bak
+*_backup_*
+test_output/
 
 # 数据集和收集目录 - 只保留目录结构
 dataset/*
@@ -26,9 +34,11 @@ collection/*
 # IDE配置
 .idea/
 .cursor/
+.vscode/
 
 # 虚拟环境
 venv/
+env/
 .env/
 
 # 模型权重和缓存
@@ -37,64 +47,14 @@ venv/
 *.pt
 !model_weights/**/*
 
-# 其他临时文件
-*.log
-*.tmp
-*.bak
-*_backup_*
-
-# 忽略虚拟环境
-venv/
-env/
-.env/
-
-# 忽略IDE和编辑器文件
-.cursor/
-.idea/
-
-# 忽略大型数据文件
-# 保留目录结构但忽略内容
-dataset/*
-!dataset/.gitkeep
-collection/*
-!collection/.gitkeep
-
-# 忽略临时文件
-temp_corpus.txt
-temp_*
-*.tmp
-
-# 忽略大型日志文件
-logs/train_model/*.log
-logs/**/*.log
+# 日志文件
 *.log
 logs/**/
+logs/train_model/*.log
+logs/**/*.log
 
-# 忽略编译文件和缓存
-__pycache__/
-*.py[cod]
-*$py.class
-.cache/
-
-# 忽略系统文件
-.DS_Store
-
-# 模型权重文件（不忽略）
-# model_weights/*.pt
-# model_weights/*.pth
-# model_weights/*.bin
-
-# 忽略Jupyter notebooks缓存
+# Jupyter notebooks缓存
 .ipynb_checkpoints/
 
-# 忽略大型词汇表和分词器文件
+# 大型词汇表和分词器文件
 tokenizer_backup_*.json
-
-# 忽略IDE文件
-
-.idea/
-*.swp
-*.swo
-
-# 忽略测试输出
-test_output/
