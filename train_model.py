@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 import matplotlib.pyplot as plt
+import matplotlib.font_manager
 import numpy as np
 import os
 import argparse
@@ -69,8 +70,14 @@ def plot_training_stats(stats, save_dir):
     """绘制训练统计图表"""
     plt.style.use('seaborn-v0_8-darkgrid')
     
-    # 设置字体和颜色主题
-    plt.rcParams['font.family'] = 'DejaVu Sans'
+    # 设置字体和颜色主题，优先使用支持中文的字体
+    chinese_fonts = ['PingFang HK', 'Songti SC', 'STHeiti', 'Arial Unicode MS', 'DejaVu Sans']
+    for font in chinese_fonts:
+        if font in [f.name for f in matplotlib.font_manager.fontManager.ttflist]:
+            plt.rcParams['font.family'] = font
+            break
+    else:
+        plt.rcParams['font.family'] = 'DejaVu Sans'
     plt.rcParams['font.size'] = 12
     
     # 创建一个2x2的子图布局
