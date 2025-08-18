@@ -88,6 +88,9 @@ class ClassicalTokenizer:
         # 性能优化：批处理配置
         self.default_batch_size = self.config.get('processor', {}).get('batch_size', 1000)
         self.max_workers = min(os.cpu_count(), self.config.get('processor', {}).get('max_workers', 8))
+
+        # 频繁创建线程池开销较大，初始化时创建并复用
+        self._executor = ThreadPoolExecutor(max_workers=self.max_workers)
         
         # 性能优化：预加载常用文本类型的处理策略
         self.text_type_strategies = {
@@ -683,20 +686,16 @@ class ClassicalTokenizer:
         # 分块处理
         chunks = [text[i:i+chunk_size] for i in range(0, len(text), chunk_size)]
         
-        # 使用线程池并行处理
-        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            if method == "bpe" or (method == "auto" and not self.dictionary):
-                futures = [executor.submit(self._tokenize_cached, chunk) for chunk in chunks]
-            else:
-                futures = [executor.submit(self.max_match_tokenize, chunk) for chunk in chunks]
-            
-            # 收集结果
-            results = []
-            for future in futures:
-                try:
-                    result = future.result()
-                    results.extend(result)
-                except Exception as e:
-                    logger.warning(f"分词处理出错: {e}")
-            
-            return results
+        # 使用在 __init__ 中创建的线程池，避免重复创建开销
+        if method == "bpe" or (method == "auto" and not self.dictionary):
+            futures = [self._executor.submit(self._tokenize_cached, chunk) for chunk in chunks]
+        else:
+            futures = [self._executor.submit(self.max_match_tokenize, chunk) for chunk in chunks]
+
+        results = []
+        for future in futures:
+            try:
+                results.extend(future.result())
+            except Exception as e:
+                logger.warning(f"分词处理出错: {e}")
+        return results
