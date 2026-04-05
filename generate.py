@@ -11,7 +11,7 @@ from functools import lru_cache
 import time
 
 # 导入模型定义
-from train_model import SimpleTransformer as LingmaoLM
+from src.model import SimpleTransformer as LingmaoLM
 
 # 设置日志
 def setup_logger():
@@ -151,7 +151,7 @@ def load_model(model_path, device="cpu"):
     """加载模型"""
     try:
         # 加载检查点
-        checkpoint = torch.load(model_path, map_location=device)
+        checkpoint = torch.load(model_path, map_location=device, weights_only=True)
         
         # 推断模型参数
         state_dict = checkpoint['model_state_dict']
