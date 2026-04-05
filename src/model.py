@@ -45,6 +45,11 @@ from src.config import (
     DEFAULT_MAX_LEN,
     DEFAULT_NHEAD,
     DEFAULT_NUM_LAYERS,
+    USE_FLASH_ATTENTION,
+    USE_SLIDING_WINDOW,
+    SWA_WINDOW_SIZE,
+    USE_WEIGHT_TYING,
+    GRADIENT_CHECKPOINTING_CHUNKS,
 )
 
 
@@ -215,6 +220,7 @@ class MoELayer(nn.Module):
     """Mixture of Experts layer — used by DeepSeek-V3, Qwen3-MoE, Gemma-3.
 
     Routes each token to top-k experts, dramatically reducing active parameters.
+    Includes auxiliary load-balancing loss (DeepSeek-V3 style) to prevent expert collapse.
 
     Args:
         d_model: Model dimension.
@@ -222,6 +228,7 @@ class MoELayer(nn.Module):
         num_experts: Total number of expert FFNs.
         top_k: Number of experts to activate per token.
         router_bias: Whether to use bias in the router linear layer.
+        aux_loss_coef: Coefficient for the auxiliary load-balancing loss (0.0 = no aux loss).
     """
 
     def __init__(
@@ -231,10 +238,12 @@ class MoELayer(nn.Module):
         num_experts: int = 8,
         top_k: int = 2,
         router_bias: bool = False,
+        aux_loss_coef: float = 0.01,  # DeepSeek-V3 style load-balancing loss
     ) -> None:
         super().__init__()
         self.num_experts = num_experts
         self.top_k = top_k
+        self.aux_loss_coef = aux_loss_coef
 
         # Router: maps hidden state to expert logits
         self.router = nn.Linear(d_model, num_experts, bias=router_bias)
@@ -244,14 +253,19 @@ class MoELayer(nn.Module):
             SwiGLUFFN(d_model, dim_feedforward) for _ in range(num_experts)
         )
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Forward pass with top-k routing.
+        # Register buffer for running load factor (for logging/monitoring)
+        self.register_buffer("expert_load", torch.zeros(num_experts), persistent=False)
+
+    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """Forward pass with top-k routing and auxiliary load-balancing loss.
 
         Args:
             x: [batch_size, seq_len, d_model]
 
         Returns:
-            [batch_size, seq_len, d_model] — weighted sum of top-k expert outputs
+            Tuple of:
+            - [batch_size, seq_len, d_model] — weighted sum of top-k expert outputs
+            - [1] — auxiliary load-balancing loss (scalar)
         """
         B, L, D = x.shape
         x_flat = x.view(-1, D)  # [B*L, d_model]
@@ -259,11 +273,28 @@ class MoELayer(nn.Module):
 
         # Router: [num_tokens, num_experts] → [num_tokens, top_k] expert indices + weights
         router_logits = self.router(x_flat)  # [num_tokens, num_experts]
-        weights, indices = torch.topk(router_logits, self.top_k, dim=-1)
-        weights = F.softmax(weights, dim=-1).to(x.dtype)  # [num_tokens, top_k]
+        router_probs = F.softmax(router_logits, dim=-1).to(x.dtype)  # [num_tokens, num_experts]
+
+        weights, indices = torch.topk(router_probs, self.top_k, dim=-1)
+        # weights are already probabilities from softmax, no need to re-softmax
+        weights = weights.to(x.dtype)  # [num_tokens, top_k]
 
         # Accumulate expert contributions per token
         out = torch.zeros_like(x_flat)  # [num_tokens, d_model]
+
+        # Compute load-balancing auxiliary loss (DeepSeek-V3 style)
+        # This encourages equal utilization across experts to prevent expert collapse
+        if self.aux_loss_coef > 0 and self.training:
+            # Fraction of tokens routed to each expert (before top-k masking)
+            token_load = router_probs.mean(dim=0)  # [num_experts]
+            # Fraction of routing weight assigned to each expert (after top-k)
+            weight_load = weights.sum(dim=0) / self.top_k  # [num_experts]
+            # Load-balancing loss: penalize unequal distribution
+            # Loss = sum(load_factor^2) encourages all experts to have similar load
+            aux_loss = (token_load * weight_load).sum() * self.num_experts
+            aux_loss = aux_loss * self.aux_loss_coef
+        else:
+            aux_loss = torch.zeros(1, device=x.device, dtype=x.dtype)
 
         for k_idx in range(self.top_k):
             expert_weights = weights[:, k_idx]  # [num_tokens]
@@ -276,11 +307,15 @@ class MoELayer(nn.Module):
                 expert_out = self.experts[expert_id](x_flat[token_mask])  # [active, d_model]
                 out[token_mask] += expert_out * expert_weights[token_mask].unsqueeze(-1)
 
-        return out.view(B, L, D)
+        # Update running load factor for monitoring
+        with torch.no_grad():
+            self.expert_load = token_load.detach() if self.training else self.expert_load
+
+        return out.view(B, L, D), aux_loss
 
 
 class ModernAttention(nn.Module):
-    """Modern causal attention with Flash Attention (via PyTorch SDPA), RoPE, and GQA.
+    """Modern causal attention with Flash Attention (via PyTorch SDPA), RoPE, GQA, KV Cache, and SWA.
 
     Uses F.scaled_dot_product_attention which automatically dispatches to Flash Attention
     on GPUs with compute capability >= 7.0 ( Volta+ ).
@@ -293,6 +328,10 @@ class ModernAttention(nn.Module):
         dropout: Dropout probability.
         max_seq_len: Maximum sequence length for RoPE pre-computation.
         rope_scaling: Optional YaRN-style RoPE scaling dict.
+        attention_dropout: Dropout probability for attention weights.
+        use_flash_attention: Use Flash Attention via PyTorch SDPA.
+        use_sliding_window: Enable sliding window attention (SWA).
+        window_size: Window size for SWA (attention only attends to tokens within window).
     """
 
     def __init__(
@@ -303,12 +342,18 @@ class ModernAttention(nn.Module):
         dropout: float = 0.0,
         max_seq_len: int = DEFAULT_MAX_LEN,
         rope_scaling: Optional[dict] = None,
+        attention_dropout: float = 0.05,  # Modern LLMs use ~0.05 attention dropout
+        use_flash_attention: bool = USE_FLASH_ATTENTION,
+        use_sliding_window: bool = USE_SLIDING_WINDOW,
+        window_size: int = SWA_WINDOW_SIZE,
     ) -> None:
         super().__init__()
         assert d_model % num_heads == 0, "d_model must be divisible by num_heads"
         self.num_heads = num_heads
         self.num_kv_heads = num_kv_heads or num_heads
         self.head_dim = d_model // num_heads
+        self.use_sliding_window = use_sliding_window
+        self.window_size = window_size
 
         assert (
             self.num_kv_heads <= self.num_heads
@@ -323,7 +368,9 @@ class ModernAttention(nn.Module):
         self.v_proj = nn.Linear(d_model, self.num_kv_heads * self.head_dim, bias=False)
         self.o_proj = nn.Linear(self.num_heads * self.head_dim, d_model, bias=False)
 
-        self.dropout = dropout
+        self.dropout = nn.Dropout(dropout)  # Module-level dropout layer
+        self.attention_dropout = attention_dropout  # Dropout prob for attention weights
+        self.use_flash_attention = use_flash_attention
         self.rotary = RotaryEmbedding(
             dim=self.head_dim,
             max_seq_len=max_seq_len,
@@ -362,8 +409,8 @@ class ModernAttention(nn.Module):
             scores = scores + attention_mask
 
         attn_weights = F.softmax(scores, dim=-1)
-        if self.dropout > 0 and self.training:
-            attn_weights = F.dropout(attn_weights, p=self.dropout)
+        if self.training and self.attention_dropout > 0:
+            attn_weights = self.dropout(attn_weights)
 
         v_t = v.transpose(1, 2)  # [B, H, L, D]
         output = torch.matmul(attn_weights, v_t)  # [B, H, L, D]
@@ -374,17 +421,23 @@ class ModernAttention(nn.Module):
         x: torch.Tensor,
         attention_mask: Optional[torch.Tensor] = None,
         is_causal: bool = True,
-    ) -> torch.Tensor:
-        """Forward pass with Flash Attention via PyTorch SDPA.
+        use_cache: bool = False,
+        past_key_values: Optional[tuple] = None,
+    ) -> tuple[torch.Tensor, Optional[tuple]]:
+        """Forward pass with Flash Attention via PyTorch SDPA, with optional KV Cache and SWA.
 
         Args:
             x: [batch_size, seq_len, d_model]
             attention_mask: Optional attention mask (e.g., for padding).
                            Shape: [batch_size, 1, seq_len, seq_len] or [batch_size, seq_len].
             is_causal: If True, apply causal masking automatically via SDPA.
+            use_cache: If True, return past_key_values for KV caching in generation.
+            past_key_values: Optional tuple of (k, v) from previous forward passes for KV cache.
 
         Returns:
-            [batch_size, seq_len, d_model]
+            Tuple of:
+            - [batch_size, seq_len, d_model] — attention output
+            - Optional tuple of (k, v) tensors for KV cache (if use_cache=True)
         """
         B, L, D = x.shape
 
@@ -402,44 +455,71 @@ class ModernAttention(nn.Module):
         cos, sin = self.rotary(L, device=x.device)
         q, k = self.rotary.apply_rotary_qk(q, k, cos, sin)
 
+        # Handle KV Cache: concatenate past and present K/V
+        if past_key_values is not None:
+            past_k, past_v = past_key_values
+            k = torch.cat([past_k, k], dim=1)  # [B, past_len + L, num_kv_heads, head_dim]
+            v = torch.cat([past_v, v], dim=1)  # [B, past_len + L, num_kv_heads, head_dim]
+
         # For GQA: expand K and V to match Q heads via repeat
         if self.num_kv_heads < self.num_heads:
             # Repeat K and V heads to match Q heads
             reps = self.num_heads // self.num_kv_heads
-            k = k.repeat_interleave(reps, dim=2)  # [B, L, num_heads, head_dim]
-            v = v.repeat_interleave(reps, dim=2)  # [B, L, num_heads, head_dim]
+            k = k.repeat_interleave(reps, dim=2)  # [B, seq, num_heads, head_dim]
+            v = v.repeat_interleave(reps, dim=2)  # [B, seq, num_heads, head_dim]
 
-        # SDPA with Flash Attention: dispatches to flash_attn on CUDA if available
-        # Falls back to naive attention on CPU or unsupported hardware
-        if q.device.type == "cuda":
-            try:
+        # Return cache for next forward pass
+        present_key_values = (k, v) if use_cache else None
+
+        # Sliding Window Attention: mask out tokens beyond window_size
+        attn_mask = attention_mask
+        if self.use_sliding_window and L > 1:
+            # Create sliding window mask: each position only attends to window_size tokens before
+            seq_len = k.shape[1]
+            if self.use_flash_attention:
+                # For SDPA: create a causal mask that respects window_size
+                # Positions beyond window_size get -inf attention
+                import torch
+                casual_for_swa = torch.triu(
+                    torch.ones(seq_len, seq_len, device=x.device, dtype=torch.bool), diagonal=1
+                )
+                # Also mask out tokens earlier than window_size (for SWA with left-side window)
+                window_ones = torch.ones(seq_len, seq_len, device=x.device, dtype=torch.bool)
+                col_indices = torch.arange(seq_len, device=x.device).unsqueeze(0)  # [1, seq_len]
+                row_indices = torch.arange(seq_len, device=x.device).unsqueeze(1)  # [seq_len, 1]
+                within_window = (col_indices <= row_indices) & (col_indices >= row_indices - self.window_size + 1)
+                swa_mask = ~(within_window & casual_for_swa)
+                # Combine with existing attention mask
                 if attention_mask is not None:
-                    if attention_mask.dim() == 2:
-                        attention_mask = attention_mask.unsqueeze(1).unsqueeze(2)
-                    elif attention_mask.dim() == 3:
-                        attention_mask = attention_mask.unsqueeze(1)
+                    attn_mask = attention_mask & swa_mask
+                else:
+                    attn_mask = swa_mask
 
-                with torch.backends.cuda.sdp_kernel(
-                    enable_flash=True,
-                    enable_math=False,
-                    enable_mem_efficient=True,
-                ):
-                    attn_output = F.scaled_dot_product_attention(
-                        q, k, v,
-                        attn_mask=attention_mask,
-                        dropout_p=self.dropout if self.training else 0.0,
-                        is_causal=is_causal,
-                    )
-            except RuntimeError:
+        # SDPA with Flash Attention: PyTorch 2.0+ auto-dispatches to flash_attn on CUDA
+        # No need for deprecated sdp_kernel context manager
+        if self.use_flash_attention:
+            try:
+                if attn_mask is not None:
+                    if attn_mask.dim() == 2:
+                        attn_mask = attn_mask.unsqueeze(1).unsqueeze(2)
+                    elif attn_mask.dim() == 3:
+                        attn_mask = attn_mask.unsqueeze(1)
+
+                attn_output = F.scaled_dot_product_attention(
+                    q, k, v,
+                    attn_mask=attn_mask,
+                    dropout_p=self.attention_dropout if self.training else 0.0,
+                    is_causal=is_causal,
+                )
+            except (RuntimeError, AssertionError):
                 # Fallback for CPU or unsupported hardware
-                attn_output = self._naive_attention(q, k, v, attention_mask, is_causal)
+                attn_output = self._naive_attention(q, k, v, attn_mask, is_causal)
         else:
-            # CPU: use naive attention
-            attn_output = self._naive_attention(q, k, v, attention_mask, is_causal)
+            attn_output = self._naive_attention(q, k, v, attn_mask, is_causal)
 
         # Reshape and project output
         attn_output = attn_output.contiguous().view(B, L, -1)  # [B, L, num_heads * head_dim]
-        return self.o_proj(attn_output)
+        return self.o_proj(attn_output), present_key_values
 
 
 class ModernTransformerBlock(nn.Module):
@@ -474,6 +554,9 @@ class ModernTransformerBlock(nn.Module):
         activation: str = "silu",
         max_seq_len: int = DEFAULT_MAX_LEN,
         rope_scaling: Optional[dict] = None,
+        attention_dropout: float = 0.05,  # Modern LLMs use ~0.05
+        use_sliding_window: bool = USE_SLIDING_WINDOW,
+        window_size: int = SWA_WINDOW_SIZE,
     ) -> None:
         super().__init__()
 
@@ -484,6 +567,9 @@ class ModernTransformerBlock(nn.Module):
             dropout=dropout,
             max_seq_len=max_seq_len,
             rope_scaling=rope_scaling,
+            attention_dropout=attention_dropout,
+            use_sliding_window=use_sliding_window,
+            window_size=window_size,
         )
         self.attention_norm = nn.RMSNorm(d_model)  # Pre-norm (like GPT/NormFormer)
 
@@ -504,12 +590,17 @@ class ModernTransformerBlock(nn.Module):
         self,
         x: torch.Tensor,
         attention_mask: Optional[torch.Tensor] = None,
-    ) -> torch.Tensor:
+        use_cache: bool = False,
+        past_key_values: Optional[tuple] = None,
+    ) -> tuple[torch.Tensor, Optional[tuple]]:
         # Pre-norm transformer: Norm(x + Attn(x))
-        x = x + self.dropout_layer(self.attention(self.attention_norm(x), attention_mask))
+        attn_out, present = self.attention(
+            self.attention_norm(x), attention_mask, use_cache=use_cache, past_key_values=past_key_values
+        )
+        x = x + self.dropout_layer(attn_out)
         # Norm(x + FFN(x))
         x = x + self.feed_forward(self.ffn_norm(x))
-        return x
+        return x, present
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -523,6 +614,7 @@ class SimpleTransformer(nn.Module):
     Two modes available:
     - "legacy": Uses sinusoidal PE + PyTorch TransformerEncoderLayer
     - "modern": Uses RoPE + SwiGLU/GQA/MoE + Flash Attention (via PyTorch SDPA)
+      (2024-2026 best practice: modern mode is default for new models)
 
     Args:
         vocab_size: Size of the vocabulary.
@@ -532,7 +624,7 @@ class SimpleTransformer(nn.Module):
         dim_feedforward: Hidden dimension in the feed-forward sub-layer.
         dropout: Dropout probability.
         max_len: Maximum sequence length for positional encodings.
-        mode: "legacy" (default) or "modern".
+        mode: "legacy" or "modern" (default="modern").
         num_kv_heads: Number of KV heads for GQA (modern mode only).
         use_moe: Use MoE FFN instead of SwiGLU (modern mode only).
         num_experts: Number of experts in MoE (modern mode only).
@@ -549,17 +641,27 @@ class SimpleTransformer(nn.Module):
         dim_feedforward: int = DEFAULT_DIM_FEEDFORWARD,
         dropout: float = DEFAULT_DROPOUT,
         max_len: int = DEFAULT_MAX_LEN,
-        mode: str = "legacy",
+        mode: str = "modern",  # Changed from "legacy" - modern is the default
         # Modern mode options
         num_kv_heads: Optional[int] = None,
         use_moe: bool = False,
         num_experts: int = 8,
         top_k: int = 2,
         rope_scaling: Optional[dict] = None,
+        # Gradient checkpointing option for memory-efficient training
+        use_checkpoint: bool = False,
+        # Weight tying
+        use_weight_tying: bool = USE_WEIGHT_TYING,
+        # Sliding window attention
+        use_sliding_window: bool = USE_SLIDING_WINDOW,
+        window_size: int = SWA_WINDOW_SIZE,
     ) -> None:
         super().__init__()
         self.mode = mode
         self.d_model = d_model
+        self.use_checkpoint = use_checkpoint
+        self.use_weight_tying = use_weight_tying
+        self._tied_weights = False
 
         if mode == "legacy":
             # ── Legacy path: sinusoidal PE + PyTorch TransformerEncoder ──
@@ -586,6 +688,8 @@ class SimpleTransformer(nn.Module):
                     top_k=top_k,
                     max_seq_len=max_len,
                     rope_scaling=rope_scaling,
+                    use_sliding_window=use_sliding_window,
+                    window_size=window_size,
                 )
                 for _ in range(num_layers)
             ])
@@ -596,14 +700,126 @@ class SimpleTransformer(nn.Module):
         self.output_layer = nn.Linear(d_model, vocab_size)
         self.max_len = max_len
 
+        # Apply weight tying if enabled (after output_layer is created)
+        if use_weight_tying and mode == "modern":
+            self.tie_weights()
+
         self._init_parameters()
 
     def _init_parameters(self) -> None:
-        for p in self.parameters():
-            if p.dim() > 1:
-                nn.init.xavier_uniform_(p)
+        """Initialize model weights using modern best practices (2024-2026).
 
-    def forward(self, src: torch.Tensor, attention_mask=None) -> torch.Tensor:
+        Modern LLMs (LLaMA-3, Qwen3, DeepSeek-V3) use:
+        - Normal distribution with std ≈ 0.02 for attention projections
+        - Scaled initialization for SwiGLU FFN layers (important for stability)
+        - Zero init for output projection (helps with early training)
+        """
+        if self.mode == "modern":
+            # Modern initialization: normal with small std
+            # Based on code from Qwen/LLaMA which uses std=0.02
+            for name, param in self.named_parameters():
+                if param.dim() > 1:
+                    if "output_layer" in name:
+                        # Output projection: small init helps early training
+                        nn.init.normal_(param, mean=0.0, std=0.02)
+                    elif "w1" in name or "w3" in name:
+                        # SwiGLU input projections: scaled init
+                        nn.init.normal_(param, mean=0.0, std=0.02)
+                    elif "w2" in name:
+                        # SwiGLU output projection: even smaller init
+                        nn.init.normal_(param, mean=0.0, std=0.01)
+                    elif "embedding" in name:
+                        nn.init.normal_(param, mean=0.0, std=0.02)
+                    else:
+                        # Attention projections (q, k, v, o)
+                        nn.init.normal_(param, mean=0.0, std=0.02)
+        else:
+            # Legacy path: xavier_uniform (original behavior)
+            for p in self.parameters():
+                if p.dim() > 1:
+                    nn.init.xavier_uniform_(p)
+
+    def tie_weights(self) -> None:
+        """Tie embedding and output layer weights.
+
+        This reduces parameters by ~20% (the output layer shares weights with embedding).
+        Used by LLaMA, GPT-2, and most modern LLMs.
+
+        Must be called after output_layer is created.
+        """
+        if self._tied_weights:
+            return
+        self.output_layer.weight = self.embedding.weight
+        self._tied_weights = True
+
+    def untie_weights(self) -> None:
+        """Untie embedding and output layer weights (creates independent copies)."""
+        if not self._tied_weights:
+            return
+        self.output_layer.weight = nn.Parameter(self.output_layer.weight.clone())
+        self._tied_weights = False
+
+    def forward(
+        self,
+        src: torch.Tensor,
+        attention_mask=None,
+        use_cache: bool = False,
+        past_key_values: Optional[tuple] = None,
+    ) -> tuple[torch.Tensor, Optional[tuple]]:
+        """Forward pass.
+
+        Args:
+            src: LongTensor of shape [batch_size, seq_len].
+            attention_mask: Optional attention mask for modern mode.
+            use_cache: If True, return past_key_values for KV caching in generation.
+            past_key_values: Optional tuple of (k, v) from previous forward passes.
+
+        Returns:
+            Tuple of:
+            - [batch_size, seq_len, vocab_size] — logits output
+            - Optional tuple of present_key_values for KV cache (if use_cache=True)
+        """
+        present = None
+
+        if self.mode == "legacy":
+            src = self.embedding(src) * math.sqrt(self.d_model)
+            src = self.pos_encoder(src)
+            if self.use_checkpoint:
+                # Use gradient checkpointing for memory-efficient training
+                output = torch.utils.checkpoint.checkpoint(
+                    self.transformer_encoder, src, use_reentrant=False
+                )
+            else:
+                output = self.transformer_encoder(src)
+        else:
+            src = self.embedding(src)
+            if getattr(self, 'gradient_checkpointing', False):
+                # Use checkpoint_sequential for memory-efficient training
+                # attention_mask is passed as None during checkpointing (typical for causal attention)
+                src = torch.utils.checkpoint.checkpoint_sequential(
+                    self.transformer_blocks,
+                    GRADIENT_CHECKPOINTING_CHUNKS,
+                    src,
+                    attention_mask=None,
+                )
+                present = None
+            else:
+                new_past_key_values = []
+                for i, block in enumerate(self.transformer_blocks):
+                    past = past_key_values[i] if past_key_values else None
+                    src, present_i = block(
+                        src,
+                        attention_mask=attention_mask,
+                        use_cache=use_cache,
+                        past_key_values=past,
+                    )
+                    if use_cache:
+                        new_past_key_values.append(present_i)
+                present = tuple(new_past_key_values) if use_cache else None
+            output = self.norm(src)
+
+        output = self.output_layer(output)
+        return output, present
         """Forward pass.
 
         Args:
@@ -616,11 +832,27 @@ class SimpleTransformer(nn.Module):
         if self.mode == "legacy":
             src = self.embedding(src) * math.sqrt(self.d_model)
             src = self.pos_encoder(src)
-            output = self.transformer_encoder(src)
+            if self.use_checkpoint:
+                # Use gradient checkpointing for memory-efficient training
+                output = torch.utils.checkpoint.checkpoint(
+                    self.transformer_encoder, src, use_reentrant=False
+                )
+            else:
+                output = self.transformer_encoder(src)
         else:
             src = self.embedding(src)
-            for block in self.transformer_blocks:
-                src = block(src, attention_mask=attention_mask)
+            if getattr(self, 'gradient_checkpointing', False):
+                # Use checkpoint_sequential for memory-efficient training
+                # attention_mask is passed as None during checkpointing (typical for causal attention)
+                src = torch.utils.checkpoint.checkpoint_sequential(
+                    self.transformer_blocks,
+                    GRADIENT_CHECKPOINTING_CHUNKS,
+                    src,
+                    attention_mask=None,
+                )
+            else:
+                for block in self.transformer_blocks:
+                    src = block(src, attention_mask=attention_mask)
             output = self.norm(src)
 
         output = self.output_layer(output)

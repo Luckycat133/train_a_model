@@ -46,6 +46,36 @@ DEFAULT_GPU_MEMORY_FRAC = 0.90
 # ─── LR Schedule ─────────────────────────────────────────────────────────────
 WARMUP_STEPS = 1000
 TOTAL_TRAINING_STEPS = 10000
+MIN_LR_RATIO = 0.1  # Minimum LR as ratio of peak (for cosine annealing)
+WARMUP_RATIO = 0.1  # Warmup as ratio of total steps (0.1 = 10% warmup)
+
+# ─── Modern Training Optimizations ───────────────────────────────────────────
+USE_FUSED_ADAMW = True  # Use fused AdamW kernel (faster on Ampere+ GPUs)
+USE_GRADIENT_CHECKPOINTING = True  # Now enabled by default - improves effective depth
+GRADIENT_CHECKPOINTING_CHUNKS = 1  # Number of checkpoint chunks (1 = uniform)
+CPU_OFFLOAD = False  # Offload model to CPU when not in use (for large models)
+LABEL_SMOOTHING = 0.1  # Standard in modern LLMs (LLaMA-3, Qwen3) for better generation
+
+# ─── Attention & Architecture ────────────────────────────────────────────────
+USE_FLASH_ATTENTION = True  # Use Flash Attention via PyTorch SDPA (auto-detected)
+NUM_KV_HEADS = None  # None = MHA, < nhead = GQA (modern LLMs use GQA)
+HEAD_DIM = 64  # Standard head dimension for modern LLMs
+USE_CHECKPOINT = False  # Use activation checkpointing in legacy mode
+USE_COMPILE = False  # Use torch.compile() for ~30% speedup on PyTorch 2.0+
+
+# ─── Weight Tying ───────────────────────────────────────────────────────────────
+USE_WEIGHT_TYING = True  # Tie embedding and output layer weights (reduces params ~20%)
+
+# ─── Sliding Window Attention ─────────────────────────────────────────────────
+USE_SLIDING_WINDOW = False  # Enable sliding window attention (SWA)
+SWA_WINDOW_SIZE = 512  # Window size for SWA (must be power of 2 for efficiency)
+
+# ─── Modern Tokenization ──────────────────────────────────────────────────────
+USE_BPE_TOKENIZER = False  # Use sentencepiece BPE instead of max-match
+BPE_VOCAB_SIZE = 32768  # Standard BPE vocab for Chinese
+BPE_MODEL_TYPE = "unigram"  # BPE algorithm: "unigram", "bpe", or "char"
+CHAR_COVERAGE = 1.0  # Character coverage for Chinese tokenization
+BYTE_FALLBACK = False  # Use byte-level tokenization as fallback
 
 # ─── Logging ──────────────────────────────────────────────────────────────────
 LOG_DIR = "logs"

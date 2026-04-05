@@ -1,0 +1,61 @@
+# Configuration for Lingmao Moyun training system
+
+model:
+  d_model: 768
+  nhead: 12
+  num_layers: 12
+  dim_feedforward: 3072
+  dropout: 0.1
+  max_len: 1024
+  vocab_size: 50000
+
+training:
+  context_length: 256
+  batch_size: 8
+  learning_rate: 5e-5
+  epochs: 10
+  accumulation_steps: 4
+  max_grad_norm: 1.0
+  weight_decay: 0.01
+  checkpoint_every: 1
+  warmup_steps: 1000
+  total_training_steps: 10000
+
+dataset:
+  stride: 256
+  max_chunks: null
+  memmap_threshold: 10000000
+  batch_load_size: 100
+  sample_array_init_size: 1000
+
+memory:
+  max_cache_size: 10000
+  memory_map_suffix: ".dat"
+  gpu_memory_frac: 0.90
+
+night_mode:
+  enabled: false
+  start_hour: 21
+  end_hour: 8
+  batch_divisor: 2
+  gpu_memory_frac: 0.50
+  cpu_cores_divisor: 2
+
+tokenizer:
+  path: "tokenizer.json"
+  cache_maxsize: 16384
+  # vocab_size: For Chinese poetry (ClassicalTokenizer replacement), 15000-20000 recommended.
+  # Classical Chinese uses ~4000-5000 unique characters + learned n-gram phrases.
+  # Too large (50k) wastes compute; too small (5k) loses phrase-level tokens.
+  vocab_size: 16000
+  special_tokens: ["<pad>", "<unk>", "<bos>", "<eos>", "<sep>", "<cls>", "[PAD]", "[UNK]", "[BOS]", "[EOS]", "[SEP]", "[CLS]", "[MASK]"]
+
+paths:
+  log_dir: "logs"
+  log_subdir: "train_model"
+  model_save_dir: "model_weights"
+  checkpoint_name_prefix: "checkpoint_epoch"
+  best_model_name: "best_model"
+  final_model_name_prefix: "final_model"
+
+version: "0.8.5"
