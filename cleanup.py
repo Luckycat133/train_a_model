@@ -143,14 +143,33 @@ def scan_large_files(min_size_mb=100, include_dirs=None, exclude_patterns=None):
     large_files.sort(key=lambda x: x[1], reverse=True)
     return large_files
 
+def _is_protected_by_substring(path_str: str) -> bool:
+    """Return True if any PROTECTED_FILES entry appears as a path component.
+
+    Unlike a naive ``in`` check, this verifies that the protected name appears
+    as a complete path segment (between slashes or at the start/end), which
+    prevents e.g. ``mydocs`` from being falsely matched by ``docs``.
+    """
+    for protected in PROTECTED_FILES:
+        # Exact match (e.g. "train_model.py")
+        if path_str == protected:
+            return True
+        # Protected name preceded by "/" and followed by "/" or end (e.g. "/docs/")
+        if f"/{protected}/" in path_str or path_str.endswith(f"/{protected}"):
+            return True
+        # Windows-style separators
+        if f"\\{protected}\\" in path_str or path_str.endswith(f"\\{protected}"):
+            return True
+    return False
+
+
 def is_safe_to_delete(file_path):
     """检查文件是否可以安全删除"""
     path_str = str(file_path)
     
-    # 检查是否在保护列表中
-    for protected in PROTECTED_FILES:
-        if protected in path_str:
-            return False
+    # 检查是否在保护列表中（安全的路径组件检查）
+    if _is_protected_by_substring(path_str):
+        return False
     
     # 检查是否为核心数据文件
     if path_str in CORE_DATA_FILES:
@@ -158,12 +177,6 @@ def is_safe_to_delete(file_path):
         
     # 安全检查：不删除python源文件，除非在__pycache__目录中
     if path_str.endswith('.py') and '__pycache__' not in path_str:
-        return False
-        
-    # 不删除docs和changelog目录中的md文件
-    if (path_str.endswith('.md') and 
-        ('docs/' in path_str or 'changelog/' in path_str or 
-         'docs\\' in path_str or 'changelog\\' in path_str)):
         return False
         
     # 不删除LICENSE文件
