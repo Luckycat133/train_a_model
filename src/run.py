@@ -18,11 +18,11 @@ from src.config import (
     DEFAULT_EPOCHS,
     DEFAULT_LEARNING_RATE,
     DEFAULT_MAX_GRAD_NORM,
-    DEFAULT_MODEL_SAVE_DIR,
     DEFAULT_NHEAD,
     DEFAULT_NUM_LAYERS,
     DEFAULT_TOKENIZER_PATH,
     DEFAULT_WEIGHT_DECAY,
+    MODEL_SAVE_DIR,
     VERSION,
 )
 from src.logger import get_logger
