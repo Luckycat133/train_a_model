@@ -7,6 +7,8 @@ import argparse
 import shutil
 from pathlib import Path
 
+import yaml
+
 from src.config import (
     DEFAULT_ACCUMULATION_STEPS,
     DEFAULT_BATCH_SIZE,
@@ -23,6 +25,11 @@ from src.config import (
     DEFAULT_TOKENIZER_PATH,
     DEFAULT_WEIGHT_DECAY,
     MODEL_SAVE_DIR,
+    USE_CHECKPOINT,
+    USE_COMPILE,
+    USE_WEIGHT_TYING,
+    USE_SLIDING_WINDOW,
+    SWA_WINDOW_SIZE,
     VERSION,
 )
 from src.logger import get_logger
@@ -77,6 +84,15 @@ def main() -> None:
     parser.add_argument("--accumulation_steps", type=int, default=DEFAULT_ACCUMULATION_STEPS)
     parser.add_argument("--max_grad_norm", type=float, default=DEFAULT_MAX_GRAD_NORM)
     parser.add_argument("--weight_decay", type=float, default=DEFAULT_WEIGHT_DECAY)
+    parser.add_argument("--use_checkpoint", dest="use_checkpoint", action="store_true", default=USE_CHECKPOINT)
+    parser.add_argument("--no_use_checkpoint", dest="use_checkpoint", action="store_false")
+    parser.add_argument("--use_compile", dest="use_compile", action="store_true", default=USE_COMPILE)
+    parser.add_argument("--no_use_compile", dest="use_compile", action="store_false")
+    parser.add_argument("--use_weight_tying", dest="use_weight_tying", action="store_true", default=USE_WEIGHT_TYING)
+    parser.add_argument("--no_use_weight_tying", dest="use_weight_tying", action="store_false")
+    parser.add_argument("--use_sliding_window", dest="use_sliding_window", action="store_true", default=USE_SLIDING_WINDOW)
+    parser.add_argument("--no_use_sliding_window", dest="use_sliding_window", action="store_false")
+    parser.add_argument("--window_size", type=int, default=SWA_WINDOW_SIZE)
 
     # Mixed precision / device
     parser.add_argument("--use_amp", dest="use_amp", action="store_true", default=True)
@@ -94,7 +110,24 @@ def main() -> None:
     parser.add_argument("--clean_before_run", action="store_true", default=False,
                         help="Delete old logs/plots before starting")
 
-    args = parser.parse_args()
+    # Config file - parse first to get config path
+    parser.add_argument("--config", type=str, default=None,
+                        help="Path to YAML config file")
+
+    args, extra = parser.parse_known_args()
+    config_overrides = {}
+    if args.config:
+        with open(args.config) as f:
+            config_overrides = yaml.safe_load(f) or {}
+
+    # Build arg list from config dict, then re-parse
+    config_args = []
+    for key, value in config_overrides.items():
+        if value is not None:
+            config_args.extend(["--" + key, str(value)])
+    config_args.extend(extra)
+
+    args = parser.parse_args(config_args)
 
     if args.no_cuda:
         import torch
@@ -134,6 +167,11 @@ def main() -> None:
         resume_from=args.resume_from,
         auto_resume=args.auto_resume,
         night_mode=args.night_mode,
+        use_checkpoint=args.use_checkpoint,
+        use_compile=args.use_compile,
+        use_weight_tying=args.use_weight_tying,
+        use_sliding_window=args.use_sliding_window,
+        window_size=args.window_size,
     )
 
 

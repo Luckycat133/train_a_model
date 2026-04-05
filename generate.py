@@ -168,15 +168,22 @@ def load_model(model_path, device="cpu"):
         
         vocab_size, d_model = embedding_weight.shape
         
+        # 从检查点读取模型超参数
+        nhead = checkpoint.get('nhead', 12)
+        num_layers = checkpoint.get('num_layers', 12)
+        dim_feedforward = checkpoint.get('dim_feedforward', 3072)
+        dropout = checkpoint.get('dropout', 0.1)
+        max_len = checkpoint.get('max_len', 1024)
+
         # 创建模型实例
         model = LingmaoLM(
             vocab_size=vocab_size,
             d_model=d_model,
-            nhead=12,
-            num_layers=12,
-            dim_feedforward=3072,
-            dropout=0.1,
-            max_len=1024
+            nhead=nhead,
+            num_layers=num_layers,
+            dim_feedforward=dim_feedforward,
+            dropout=dropout,
+            max_len=max_len
         )
         
         # 加载模型权重

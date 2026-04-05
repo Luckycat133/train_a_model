@@ -20,10 +20,14 @@ try:
     import torch
     import torch.nn as nn
     from torch.utils.data import DataLoader
-    from torch.cuda.amp import autocast, GradScaler
+    from torch.amp import autocast, GradScaler
+    from torch.utils.checkpoint import checkpoint as grad_checkpoint
+    from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts
 except Exception:  # pragma: no cover
     torch = None
     nn = None
+    GradScaler = None
+    grad_checkpoint = None
 
     def autocast(*a, **k):  # type: ignore[misc]
         from contextlib import contextmanager
@@ -33,10 +37,6 @@ except Exception:  # pragma: no cover
             yield
 
         return _null()
-
-    class GradScaler:  # type: ignore[no-redef]
-        def __init__(self, *a, **k) -> None:
-            pass
 
 try:
     from tqdm import tqdm
@@ -61,13 +61,24 @@ from src.config import (
     DEFAULT_VOCAB_SIZE,
     DEFAULT_WEIGHT_DECAY,
     FORCE_EXIT_DELAY_SECONDS,
+    GRADIENT_CHECKPOINTING_CHUNKS,
+    LABEL_SMOOTHING,
     LOG_DIR,
     LOG_SUBDIR,
+    MIN_LR_RATIO,
     MODEL_SAVE_DIR,
     NIGHT_MODE_END_HOUR,
     NIGHT_MODE_GPU_MEMORY_FRAC,
     NIGHT_MODE_START_HOUR,
+    NUM_KV_HEADS,
+    SWA_WINDOW_SIZE,
     TOTAL_TRAINING_STEPS,
+    USE_COMPILE,
+    USE_FUSED_ADAMW,
+    USE_WEIGHT_TYING,
+    USE_SLIDING_WINDOW,
+    USE_GRADIENT_CHECKPOINTING,
+    USE_CHECKPOINT,
     VERSION,
     WARMUP_STEPS,
 )
@@ -255,6 +266,7 @@ def evaluate_model(
     criterion: nn.CrossEntropyLoss,
     device: torch.device,
     use_amp: bool = False,
+    amp_dtype: Optional[torch.dtype] = None,
 ) -> float:
     """Run the model over ``test_loader`` and return average loss."""
     model.eval()
@@ -269,7 +281,9 @@ def evaluate_model(
                 logger.warning(f"Skipping batch {step}: {e}")
                 continue
 
-            with autocast(enabled=use_amp):
+            use_autocast = use_amp and device.type == "cuda"
+            eval_dtype = amp_dtype if (use_autocast and amp_dtype) else None
+            with autocast(enabled=use_autocast, dtype=eval_dtype):
                 outputs = model(input_ids)
                 loss = criterion(
                     outputs.view(-1, outputs.size(-1)), target_ids.view(-1)
@@ -304,14 +318,38 @@ def _unpack_batch(
 # ─── LR schedule ───────────────────────────────────────────────────────────────
 
 
-def make_lr_lambda(current_step: int) -> float:
-    """Linear warmup → cosine decay schedule."""
-    if current_step < WARMUP_STEPS:
-        return float(current_step) / float(max(1, WARMUP_STEPS))
-    progress = float(current_step - WARMUP_STEPS) / float(
-        max(1, TOTAL_TRAINING_STEPS - WARMUP_STEPS)
+def make_cosine_schedule_with_warmup(
+    optimizer: torch.optim.Optimizer,
+    warmup_steps: int,
+    total_steps: int,
+    min_lr_ratio: float = MIN_LR_RATIO,
+) -> torch.optim.lr_scheduler.SequentialLR:
+    """Linear warmup → cosine annealing schedule with minimum LR ratio.
+
+    Modern LLMs (LLaMA-3, Qwen3, DeepSeek-V3) use cosine annealing with a
+    minimum LR ratio of 0.1-0.2 of the peak LR, plus linear warmup.
+
+    Returns a SequentialLR that first applies linear warmup, then cosine decay.
+    """
+    from torch.optim.lr_scheduler import LinearLR, CosineAnnealingLR
+
+    warmup_scheduler = LinearLR(
+        optimizer,
+        start_factor=1e-6,  # Start near zero for stability
+        end_factor=1.0,
+        total_iters=warmup_steps,
     )
-    return 0.5 * (1.0 + math.cos(math.pi * progress))
+    cosine_scheduler = CosineAnnealingLR(
+        optimizer,
+        T_max=total_steps - warmup_steps,
+        eta_min=optimizer.defaults["lr"] * min_lr_ratio,
+    )
+    scheduler = torch.optim.lr_scheduler.SequentialLR(
+        optimizer,
+        schedulers=[warmup_scheduler, cosine_scheduler],
+        milestones=[warmup_steps],
+    )
+    return scheduler
 
 
 # ─── Main training function ───────────────────────────────────────────────────
@@ -340,6 +378,12 @@ def train_model(
     resume_from: Optional[str] = None,
     auto_resume: bool = True,
     night_mode: bool = True,
+    use_gradient_checkpointing: bool = USE_GRADIENT_CHECKPOINTING,
+    use_checkpoint: bool = USE_CHECKPOINT,
+    use_compile: bool = USE_COMPILE,
+    use_weight_tying: bool = USE_WEIGHT_TYING,
+    use_sliding_window: bool = USE_SLIDING_WINDOW,
+    window_size: int = SWA_WINDOW_SIZE,
 ) -> nn.Module:
     """Train a language model end-to-end.
 
@@ -434,9 +478,28 @@ def train_model(
         num_layers=num_layers,
         dim_feedforward=dim_feedforward,
         dropout=dropout,
+        use_checkpoint=use_checkpoint,
+        num_kv_heads=NUM_KV_HEADS,
+        use_weight_tying=use_weight_tying,
+        use_sliding_window=use_sliding_window,
+        window_size=window_size,
     ).to(device)
 
+    # ── torch.compile (PyTorch 2.0+ Graph Compile) ─────────────────────────────
+    if use_compile:
+        logger.info("Compiling model with torch.compile() for ~30% speedup")
+        model = torch.compile(model)
+
     logger.info(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
+
+    # ── Gradient Checkpointing (memory optimization) ───────────────────────────
+    # Trade compute for memory: recompute activations during backward pass
+    # Standard practice in modern LLMs (LLaMA, OPT, etc.) for memory efficiency
+    if use_gradient_checkpointing and model.mode == "modern":
+        logger.info("Enabling gradient checkpointing for memory efficiency")
+        model.gradient_checkpointing = True
+    elif use_gradient_checkpointing:
+        logger.warning("Gradient checkpointing only supported in modern mode")
 
     # ── Resume ────────────────────────────────────────────────────────────────
     initial_epoch = 0
@@ -460,16 +523,62 @@ def train_model(
                 logger.warning(f"Could not load checkpoint ({e}), starting fresh")
 
     # ── Optimizer & scheduler ────────────────────────────────────────────────
-    optimizer = torch.optim.AdamW(
-        model.parameters(), lr=learning_rate, weight_decay=weight_decay
-    )
-    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, make_lr_lambda)
+    # Modern weight decay: exclude bias and norm parameters from decay
+    # This is standard practice in modern LLMs (LLaMA, BERT, etc.)
+    decay_params = []
+    no_decay_params = []
+    for name, param in model.named_parameters():
+        if param.requires_grad:
+            if "bias" in name or "norm" in name or ".norm" in name:
+                no_decay_params.append(param)
+            else:
+                decay_params.append(param)
 
+    optimizer_groups = [
+        {"params": decay_params, "weight_decay": weight_decay},
+        {"params": no_decay_params, "weight_decay": 0.0},
+    ]
+
+    # Use fused AdamW when available (faster on Ampere+ GPUs with torch 2.0+)
+    if USE_FUSED_ADAMW and hasattr(torch.optim, "AdamW") and torch.cuda.is_available():
+        try:
+            # fused=True requires CUDA and is faster
+            optimizer = torch.optim.AdamW(
+                optimizer_groups,
+                lr=learning_rate,
+                fused=True,
+                foreach=False,  # disable foreach when using fused
+            )
+            logger.info("Using fused AdamW optimizer")
+        except (TypeError, AttributeError):
+            # Fallback for older PyTorch versions
+            optimizer = torch.optim.AdamW(
+                optimizer_groups, lr=learning_rate
+            )
+    else:
+        optimizer = torch.optim.AdamW(
+            optimizer_groups, lr=learning_rate
+        )
+
+    scheduler = make_cosine_schedule_with_warmup(
+        optimizer,
+        warmup_steps=WARMUP_STEPS,
+        total_steps=TOTAL_TRAINING_STEPS,
+        min_lr_ratio=MIN_LR_RATIO,
+    )
+
+    # Determine AMP dtype: BF16 on supported GPUs (Ampere+), FP16 fallback
+    amp_dtype = None
     scaler: Optional[GradScaler] = None
     if use_amp and device.type == "cuda":
-        scaler = GradScaler()
+        if torch.cuda.is_bf16_supported():
+            amp_dtype = torch.bfloat16
+            scaler = GradScaler('cuda', bf16=True)
+        else:
+            amp_dtype = torch.float16
+            scaler = GradScaler('cuda', bf16=False)
 
-    criterion = nn.CrossEntropyLoss()
+    criterion = nn.CrossEntropyLoss(label_smoothing=LABEL_SMOOTHING)
 
     # ── Stats dict – FIX: initialise all keys including 'steps' ─────────────
     stats: Dict[str, List[Any]] = {
@@ -523,7 +632,7 @@ def train_model(
                 logger.warning(f"Skipping batch {step}: {e}")
                 continue
 
-            with autocast(enabled=(use_amp and device.type == "cuda")):
+            with autocast(enabled=(use_amp and device.type == "cuda"), dtype=amp_dtype):
                 outputs = model(input_ids)
                 loss = criterion(
                     outputs.view(-1, outputs.size(-1)), target_ids.view(-1)
@@ -535,14 +644,19 @@ def train_model(
             if (step + 1) % accumulation_steps == 0 or (step + 1) == len(
                 train_loader
             ):
+                # Gradient clipping: unscale first when using AMP, then clip
                 if max_grad_norm > 0:
-                    scaler.unscale_(optimizer)
+                    if scaler is not None:
+                        scaler.unscale_(optimizer)
                     torch.nn.utils.clip_grad_norm_(
                         model.parameters(), max_grad_norm
                     )
 
-                scaler.step(optimizer)
-                scaler.update()
+                if scaler is not None:
+                    scaler.step(optimizer)
+                    scaler.update()
+                else:
+                    optimizer.step()
                 optimizer.zero_grad()
                 scheduler.step()
 
@@ -576,7 +690,8 @@ def train_model(
         if test_loader is not None:
             test_loss = evaluate_model(
                 model, test_loader, criterion, device,
-                use_amp=(use_amp and device.type == "cuda")
+                use_amp=(use_amp and device.type == "cuda"),
+                amp_dtype=amp_dtype,
             )
             logger.info(f"Test loss: {test_loss:.4f}")
             stats["test_losses"].append(test_loss)
