@@ -71,6 +71,9 @@ class ClassicalTokenizer:
         self.dictionary = set(dictionary or self._DEFAULT_DICT)
         self.max_word_len = max((len(w) for w in self.dictionary), default=0)
         self._cache: dict = {}
+        # token_to_id mapping (populated by load() or build_vocab())
+        self.token_to_id: dict = {}
+        self.id_to_token: dict = {}
 
     def _max_match(self, text: str) -> List[str]:
         tokens: List[str] = []
@@ -122,3 +125,37 @@ class ClassicalTokenizer:
 
     def batch_tokenize(self, texts: Iterable[str], method: str = "auto", text_type: Optional[str] = None) -> List[List[str]]:
         return [self.tokenize(t, method=method, text_type=text_type) for t in texts]
+
+    # ── Persistence ───────────────────────────────────────────────────────
+
+    def load(self, path: str) -> None:
+        """"Deserialize tokenizer state from a JSON file."""
+        import json
+        with open(path, "r", encoding="utf-8", errors="strict") as f:
+            data = json.load(f)
+        if "vocab" in data:
+            vocab = data["vocab"]
+        elif "model" in data and "vocab" in data["model"]:
+            vocab = data["model"]["vocab"]
+        else:
+            raise ValueError(f"Unrecognised tokenizer format in {path}")
+        self.token_to_id = dict(vocab)
+        self.id_to_token = {v: k for k, v in self.token_to_id.items()}
+
+
+    def save(self, path: str) -> None:
+        """"Serialize tokenizer state to a JSON file."""
+        import json
+        data = {"vocab": self.token_to_id}
+        with open(path, "w", encoding="utf-8", errors="strict") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+
+    def encode(self, text: str) -> List[int]:
+        """Convert text to a list of token IDs (alias for tokenize → id lookup)."""
+        tokens = self.tokenize(text)
+        return [self.token_to_id.get(t, self.token_to_id.get("<unk>", 0)) for t in tokens]
+
+
+    def decode(self, ids: List[int]) -> str:
+        """Convert a list of token IDs back to text."""
+        return "".join(self.id_to_token.get(i, "<unk>") for i in ids)
