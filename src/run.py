@@ -80,7 +80,7 @@ def main() -> None:
     parser.add_argument("--learning_rate", type=float, default=DEFAULT_LEARNING_RATE)
     parser.add_argument("--epochs", type=int, default=DEFAULT_EPOCHS)
     parser.add_argument("--checkpoint_every", type=int, default=DEFAULT_CHECKPOINT_EVERY)
-    parser.add_argument("--model_save_dir", type=str, default=DEFAULT_MODEL_SAVE_DIR)
+    parser.add_argument("--model_save_dir", type=str, default=MODEL_SAVE_DIR)
     parser.add_argument("--accumulation_steps", type=int, default=DEFAULT_ACCUMULATION_STEPS)
     parser.add_argument("--max_grad_norm", type=float, default=DEFAULT_MAX_GRAD_NORM)
     parser.add_argument("--weight_decay", type=float, default=DEFAULT_WEIGHT_DECAY)
