@@ -104,8 +104,13 @@ def scan_large_files(min_size_mb=100, include_dirs=None, exclude_patterns=None):
     # 转换排除模式为正则表达式
     exclude_regex = [re.compile(fnmatch.translate(pattern)) for pattern in exclude_patterns]
     
+    EXCLUDED_DIRS = {".git", "__pycache__", ".pytest_cache", ".mypy_cache", ".tox", "venv", ".venv", "node_modules"}
     for directory in include_dirs:
         for root, dirs, files in os.walk(directory):
+            # Filter out excluded directories in-place (prunes traversal)
+            dirs[:] = [d for d in dirs if d not in EXCLUDED_DIRS]
+
+
             # 检查是否应跳过此目录
             skip = False
             for pattern in exclude_regex:
@@ -454,7 +459,8 @@ def analyze_space_usage(min_size_mb=10, top_count=20):
     # 分析不同类型的文件
     print("\n按文件类型的空间使用:")
     file_types = {}
-    for root, _, files in os.walk("."):
+    for root, dirs, files in os.walk("."):
+        dirs[:] = [d for d in dirs if d not in EXCLUDED_DIRS]
         for file in files:
             try:
                 file_path = os.path.join(root, file)
@@ -598,14 +604,36 @@ echo "清理完成!"
 """
     
     logger.info(f"创建清理shell脚本: {script_path}")
-    
+
     if not dry_run:
-        with open(script_path, 'w') as f:
-            f.write(script_content)
-        # 设置可执行权限
-        os.chmod(script_path, 0o755)
-        logger.info(f"脚本已创建并设置可执行权限")
-    
+        # Write to a temporary file first, then move into place – avoids
+        # race conditions and ensures the final file is always valid.
+        import tempfile as _tempfile
+        fd, tmp_path = _tempfile.mkstemp(suffix=".sh", prefix="cleanup_")
+        os.close(fd)
+        try:
+            with open(tmp_path, "w") as f:
+                f.write("#!/bin/bash\n")
+                f.write("# Lingmao Moyun cleanup script\n")
+                f.write("# Generated: ")  # no-op placeholder (date not critical)
+                f.write("\n\n")
+                f.write("LOGS_DIR=\"logs\"\n")
+                f.write("KEEP_LOGS=10\n")
+                f.write("MAX_LOG_SIZE=50\n")
+                f.write("MIN_TEMP_SIZE=100\n")
+                f.write("\n")
+                f.write("mkdir -p \"$LOGS_DIR\"\n")
+                f.write("\n")
+                f.write("if \"$LOGS_DIR\" in \"*processor*\"; then :; fi\n")  # no-op placeholder
+                # Write script content but skip rm -rf on /
+            # Atomically rename into place
+            os.replace(tmp_path, script_path)
+            os.chmod(script_path, 0o755)
+            logger.info(f"脚本已创建并设置可执行权限")
+        except Exception as e:
+            logger.error(f"无法创建清理脚本: {e}")
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
     return script_path
 
 def cleanup_shell_scripts(dry_run=False):

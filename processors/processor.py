@@ -93,7 +93,7 @@ def read_data(file_list: Iterable[str], allowed_exts: List[str], batch_size: int
         if allowed_exts and not any(file.endswith(ext) for ext in allowed_exts):
             continue
         encoding = detect_encoding(file)
-        with open(file, "r", encoding=encoding, errors="ignore") as f:
+        with open(file, "r", encoding=encoding, errors="strict") as f:
             for line in f:
                 line = line.strip()
                 if not line:
