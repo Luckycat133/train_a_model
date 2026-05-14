@@ -633,11 +633,11 @@ def train_model(
                 continue
 
             with autocast(enabled=(use_amp and device.type == "cuda"), dtype=amp_dtype):
-                outputs = model(input_ids)
-                loss = criterion(
+                outputs, _, aux_loss = model(input_ids, return_aux_loss=True)
+                ce_loss = criterion(
                     outputs.view(-1, outputs.size(-1)), target_ids.view(-1)
                 )
-                loss = loss / accumulation_steps
+                loss = (ce_loss + aux_loss) / accumulation_steps
 
             scaler.scale(loss).backward()
 
