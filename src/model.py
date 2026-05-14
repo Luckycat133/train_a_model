@@ -93,7 +93,7 @@ class PositionalEncoding(nn.Module):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Modern Components (2025-2026 LLM architecture)
+# Modern Components (2024-2026 LLM architecture)
 # ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -183,7 +183,7 @@ class RotaryEmbedding(nn.Module):
         Returns:
             (rotated_q, rotated_k) with same shape as input
         """
-        # cos/sin: [seq_len, head_dim] → [1, seq_len, 1, head_dim] for broadcasting
+        # cos/sin: [seq_len, head_dim] -> [1, seq_len, 1, head_dim] for broadcasting
         cos = cos.unsqueeze(0).unsqueeze(2)  # [1, seq_len, 1, head_dim]
         sin = sin.unsqueeze(0).unsqueeze(2)
 
@@ -271,7 +271,7 @@ class MoELayer(nn.Module):
         x_flat = x.view(-1, D)  # [B*L, d_model]
         num_tokens = B * L
 
-        # Router: [num_tokens, num_experts] → [num_tokens, top_k] expert indices + weights
+        # Router: [num_tokens, num_experts] -> [num_tokens, top_k] expert indices + weights
         router_logits = self.router(x_flat)  # [num_tokens, num_experts]
         router_probs = F.softmax(router_logits, dim=-1).to(x.dtype)  # [num_tokens, num_experts]
 
@@ -284,9 +284,8 @@ class MoELayer(nn.Module):
 
         # Compute load-balancing auxiliary loss (DeepSeek-V3 style)
         # This encourages equal utilization across experts to prevent expert collapse
+        token_load = router_probs.mean(dim=0)  # [num_experts]
         if self.aux_loss_coef > 0 and self.training:
-            # Fraction of tokens routed to each expert (before top-k masking)
-            token_load = router_probs.mean(dim=0)  # [num_experts]
             # Fraction of routing weight assigned to each expert (after top-k)
             weight_load = weights.sum(dim=0) / self.top_k  # [num_experts]
             # Load-balancing loss: penalize unequal distribution
@@ -473,27 +472,40 @@ class ModernAttention(nn.Module):
 
         # Sliding Window Attention: mask out tokens beyond window_size
         attn_mask = attention_mask
+        use_swa_causal = is_causal
         if self.use_sliding_window and L > 1:
             # Create sliding window mask: each position only attends to window_size tokens before
             seq_len = k.shape[1]
-            if self.use_flash_attention:
-                # For SDPA: create a causal mask that respects window_size
-                # Positions beyond window_size get -inf attention
-                import torch
-                casual_for_swa = torch.triu(
-                    torch.ones(seq_len, seq_len, device=x.device, dtype=torch.bool), diagonal=1
-                )
-                # Also mask out tokens earlier than window_size (for SWA with left-side window)
-                window_ones = torch.ones(seq_len, seq_len, device=x.device, dtype=torch.bool)
-                col_indices = torch.arange(seq_len, device=x.device).unsqueeze(0)  # [1, seq_len]
-                row_indices = torch.arange(seq_len, device=x.device).unsqueeze(1)  # [seq_len, 1]
-                within_window = (col_indices <= row_indices) & (col_indices >= row_indices - self.window_size + 1)
-                swa_mask = ~(within_window & casual_for_swa)
-                # Combine with existing attention mask
-                if attention_mask is not None:
-                    attn_mask = attention_mask & swa_mask
+            # Create sliding window mask
+            col_indices = torch.arange(seq_len, device=x.device).unsqueeze(0)  # [1, seq_len]
+            row_indices = torch.arange(seq_len, device=x.device).unsqueeze(1)  # [seq_len, 1]
+            # Within window
+            within_window = (col_indices <= row_indices) & (col_indices >= row_indices - self.window_size + 1)
+            if not is_causal:
+                # If not causal, also allow future positions (rare case
+                within_window = within_window | (col_indices > row_indices)
+            swa_mask = ~within_window
+            swa_mask = swa_mask.to(torch.bool)
+
+            # Combine with existing attention mask
+            if attention_mask is not None:
+                if attention_mask.dim() == 2:
+                    # [batch, seq_len] -> [batch, 1, 1, seq_len]
+                    attention_mask = attention_mask.unsqueeze(1).unsqueeze(2)
+                    attn_mask = attention_mask | swa_mask.unsqueeze(0).unsqueeze(0)
+                elif attention_mask.dim() == 3:
+                    # [batch, seq_len, seq_len] -> [batch, 1, seq_len, seq_len]
+                    attention_mask = attention_mask.unsqueeze(1)
+                    attn_mask = attention_mask | swa_mask.unsqueeze(0)
+                elif attention_mask.dim() == 4:
+                    attn_mask = attention_mask | swa_mask.unsqueeze(0).unsqueeze(0)
                 else:
-                    attn_mask = swa_mask
+                    attn_mask = swa_mask.unsqueeze(0).unsqueeze(0)
+            else:
+                attn_mask = swa_mask.unsqueeze(0).unsqueeze(0)
+            
+            # When using SWA, we don't need to set is_causal=False because we already included it in the mask
+            use_swa_causal = False
 
         # SDPA with Flash Attention: PyTorch 2.0+ auto-dispatches to flash_attn on CUDA
         # No need for deprecated sdp_kernel context manager
@@ -509,13 +521,13 @@ class ModernAttention(nn.Module):
                     q, k, v,
                     attn_mask=attn_mask,
                     dropout_p=self.attention_dropout if self.training else 0.0,
-                    is_causal=is_causal,
+                    is_causal=use_swa_causal,
                 )
             except (RuntimeError, AssertionError):
                 # Fallback for CPU or unsupported hardware
-                attn_output = self._naive_attention(q, k, v, attn_mask, is_causal)
+                attn_output = self._naive_attention(q, k, v, attn_mask, use_swa_causal)
         else:
-            attn_output = self._naive_attention(q, k, v, attn_mask, is_causal)
+            attn_output = self._naive_attention(q, k, v, attn_mask, use_swa_causal)
 
         # Reshape and project output
         attn_output = attn_output.contiguous().view(B, L, -1)  # [B, L, num_heads * head_dim]
@@ -592,15 +604,23 @@ class ModernTransformerBlock(nn.Module):
         attention_mask: Optional[torch.Tensor] = None,
         use_cache: bool = False,
         past_key_values: Optional[tuple] = None,
-    ) -> tuple[torch.Tensor, Optional[tuple]]:
+    ) -> tuple[torch.Tensor, Optional[tuple], torch.Tensor]:
         # Pre-norm transformer: Norm(x + Attn(x))
         attn_out, present = self.attention(
             self.attention_norm(x), attention_mask, use_cache=use_cache, past_key_values=past_key_values
         )
         x = x + self.dropout_layer(attn_out)
         # Norm(x + FFN(x))
-        x = x + self.feed_forward(self.ffn_norm(x))
-        return x, present
+        ffn_out = self.feed_forward(self.ffn_norm(x))
+        if isinstance(ffn_out, tuple):
+            # If using MoE, we get (output, aux_loss)
+            ffn_out, aux_loss = ffn_out
+            x = x + ffn_out
+            return x, present, aux_loss
+        else:
+            # Regular SwiGLU FFN, no aux loss
+            x = x + ffn_out
+            return x, present, torch.tensor(0.0, device=x.device, dtype=x.dtype)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -765,7 +785,8 @@ class SimpleTransformer(nn.Module):
         attention_mask=None,
         use_cache: bool = False,
         past_key_values: Optional[tuple] = None,
-    ) -> tuple[torch.Tensor, Optional[tuple]]:
+        return_aux_loss: bool = False,
+    ):
         """Forward pass.
 
         Args:
@@ -773,13 +794,15 @@ class SimpleTransformer(nn.Module):
             attention_mask: Optional attention mask for modern mode.
             use_cache: If True, return past_key_values for KV caching in generation.
             past_key_values: Optional tuple of (k, v) from previous forward passes.
+            return_aux_loss: If True, return auxiliary loss from MoE layers.
 
         Returns:
-            Tuple of:
-            - [batch_size, seq_len, vocab_size] — logits output
-            - Optional tuple of present_key_values for KV cache (if use_cache=True)
+            - If use_cache=False and return_aux_loss=False: [batch_size, seq_len, vocab_size] logits
+            - If use_cache=True: tuple(logits, present_key_values)
+            - If return_aux_loss=True: tuple(logits, present_key_values, aux_loss)
         """
         present = None
+        total_aux_loss = torch.tensor(0.0, device=src.device, dtype=src.dtype) if torch is not None else 0.0
 
         if self.mode == "legacy":
             src = self.embedding(src) * math.sqrt(self.d_model)
@@ -807,53 +830,24 @@ class SimpleTransformer(nn.Module):
                 new_past_key_values = []
                 for i, block in enumerate(self.transformer_blocks):
                     past = past_key_values[i] if past_key_values else None
-                    src, present_i = block(
+                    src, present_i, aux_loss = block(
                         src,
                         attention_mask=attention_mask,
                         use_cache=use_cache,
                         past_key_values=past,
                     )
+                    total_aux_loss = total_aux_loss + aux_loss
                     if use_cache:
                         new_past_key_values.append(present_i)
                 present = tuple(new_past_key_values) if use_cache else None
             output = self.norm(src)
 
         output = self.output_layer(output)
-        return output, present
-        """Forward pass.
-
-        Args:
-            src: LongTensor of shape [batch_size, seq_len].
-            attention_mask: Optional attention mask for modern mode.
-
-        Returns:
-            FloatTensor of shape [batch_size, seq_len, vocab_size].
-        """
-        if self.mode == "legacy":
-            src = self.embedding(src) * math.sqrt(self.d_model)
-            src = self.pos_encoder(src)
-            if self.use_checkpoint:
-                # Use gradient checkpointing for memory-efficient training
-                output = torch.utils.checkpoint.checkpoint(
-                    self.transformer_encoder, src, use_reentrant=False
-                )
-            else:
-                output = self.transformer_encoder(src)
+        
+        # Return appropriate values based on flags
+        if return_aux_loss:
+            return output, present, total_aux_loss
+        elif use_cache:
+            return output, present
         else:
-            src = self.embedding(src)
-            if getattr(self, 'gradient_checkpointing', False):
-                # Use checkpoint_sequential for memory-efficient training
-                # attention_mask is passed as None during checkpointing (typical for causal attention)
-                src = torch.utils.checkpoint.checkpoint_sequential(
-                    self.transformer_blocks,
-                    GRADIENT_CHECKPOINTING_CHUNKS,
-                    src,
-                    attention_mask=None,
-                )
-            else:
-                for block in self.transformer_blocks:
-                    src = block(src, attention_mask=attention_mask)
-            output = self.norm(src)
-
-        output = self.output_layer(output)
-        return output
+            return output
