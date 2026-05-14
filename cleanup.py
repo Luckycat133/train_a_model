@@ -45,6 +45,9 @@ console_handler.setLevel(logging.INFO)
 console_handler.setFormatter(logging.Formatter("%(message)s"))
 logger.addHandler(console_handler)
 
+# 项目根目录（绝对路径）
+PROJECT_ROOT = Path(__file__).resolve().parent
+
 # 安全文件列表 - 这些文件/目录不会被删除
 PROTECTED_FILES = {
     # 核心Python文件
@@ -69,6 +72,22 @@ CORE_DATA_FILES = {
     "dataset/metadata.json"
 }
 
+def is_safe_path(path: Path) -> bool:
+    """验证路径是否安全，确保在项目根目录内"""
+    try:
+        # 解析为绝对路径
+        abs_path = path.resolve()
+        # 检查是否在项目根目录内
+        return abs_path.is_relative_to(PROJECT_ROOT)
+    except Exception:
+        return False
+
+def validate_path(path: Path) -> Path:
+    """验证路径安全性并返回规范化的绝对路径"""
+    if not is_safe_path(path):
+        raise ValueError(f"不安全的路径: {path} - 必须在项目根目录内")
+    return path.resolve()
+
 def format_size(size_bytes):
     """将字节数转换为人类可读的格式"""
     if size_bytes == 0:
@@ -82,6 +101,7 @@ def format_size(size_bytes):
 
 def get_dir_size(path):
     """获取目录的总大小"""
+    path = validate_path(Path(path))
     total = 0
     with os.scandir(path) as it:
         for entry in it:
@@ -106,7 +126,8 @@ def scan_large_files(min_size_mb=100, include_dirs=None, exclude_patterns=None):
     
     EXCLUDED_DIRS = {".git", "__pycache__", ".pytest_cache", ".mypy_cache", ".tox", "venv", ".venv", "node_modules"}
     for directory in include_dirs:
-        for root, dirs, files in os.walk(directory):
+        dir_path = validate_path(Path(directory))
+        for root, dirs, files in os.walk(dir_path):
             # Filter out excluded directories in-place (prunes traversal)
             dirs[:] = [d for d in dirs if d not in EXCLUDED_DIRS]
 
@@ -170,7 +191,13 @@ def _is_protected_by_substring(path_str: str) -> bool:
 
 def is_safe_to_delete(file_path):
     """检查文件是否可以安全删除"""
-    path_str = str(file_path)
+    path = Path(file_path)
+    # 首先检查路径是否安全
+    if not is_safe_path(path):
+        logger.warning(f"不安全的路径，拒绝删除: {file_path}")
+        return False
+    
+    path_str = str(path.relative_to(PROJECT_ROOT))
     
     # 检查是否在保护列表中（安全的路径组件检查）
     if _is_protected_by_substring(path_str):
@@ -190,6 +217,29 @@ def is_safe_to_delete(file_path):
         
     return True
 
+def safe_unlink(path: Path) -> None:
+    """安全删除文件"""
+    validated_path = validate_path(path)
+    if is_safe_to_delete(validated_path):
+        validated_path.unlink()
+    else:
+        raise ValueError(f"文件受保护或不安全，无法删除: {path}")
+
+def safe_rmtree(path: Path) -> None:
+    """安全删除目录树"""
+    validated_path = validate_path(path)
+    # 检查是否是受保护的目录
+    path_str = str(validated_path.relative_to(PROJECT_ROOT))
+    if _is_protected_by_substring(path_str):
+        raise ValueError(f"目录受保护，无法删除: {path}")
+    shutil.rmtree(validated_path)
+
+def safe_rename(src: Path, dst: Path) -> None:
+    """安全重命名/移动文件"""
+    validated_src = validate_path(src)
+    validated_dst = validate_path(dst)
+    validated_src.rename(validated_dst)
+
 def cleanup_temp_files(min_size_mb=100, dry_run=False, force=False):
     """清理临时文件"""
     temp_patterns = [
@@ -205,12 +255,12 @@ def cleanup_temp_files(min_size_mb=100, dry_run=False, force=False):
     count = 0
     
     for pattern in temp_patterns:
-        pattern_path = Path(".")  # 从当前目录开始
+        pattern_path = PROJECT_ROOT  # 从项目根目录开始
         # 将glob模式拆分成路径和文件模式
         if "/" in pattern:
             path_parts = pattern.split("/")
             pattern_str = path_parts[-1]
-            pattern_path = Path("/".join(path_parts[:-1]))
+            pattern_path = PROJECT_ROOT / "/".join(path_parts[:-1])
         else:
             pattern_str = pattern
             
@@ -219,6 +269,10 @@ def cleanup_temp_files(min_size_mb=100, dry_run=False, force=False):
                 continue
                 
             # 安全检查
+            if not is_safe_path(file):
+                logger.warning(f"跳过不安全路径的文件: {file}")
+                continue
+                
             if not is_safe_to_delete(file) and not force:
                 logger.warning(f"跳过保护文件: {file}")
                 continue
@@ -228,7 +282,7 @@ def cleanup_temp_files(min_size_mb=100, dry_run=False, force=False):
                 logger.info(f"找到大型临时文件: {file} ({format_size(size)})")
                 if not dry_run:
                     try:
-                        file.unlink()
+                        safe_unlink(file)
                         logger.info(f"已删除: {file}")
                         cleaned_size += size
                         count += 1
@@ -239,7 +293,7 @@ def cleanup_temp_files(min_size_mb=100, dry_run=False, force=False):
 
 def organize_logs(dry_run=False):
     """整理日志文件 - 移动日志文件到对应的子目录"""
-    logs_dir = Path("logs")
+    logs_dir = validate_path(PROJECT_ROOT / "logs")
     if not logs_dir.exists():
         logger.info("创建日志目录")
         if not dry_run:
@@ -272,7 +326,7 @@ def organize_logs(dry_run=False):
                     logger.info(f"移动日志文件: {file_path.name} -> {subdir}/")
                     if not dry_run:
                         try:
-                            file_path.rename(target_path)
+                            safe_rename(file_path, target_path)
                             moved_count += 1
                         except Exception as e:
                             logger.error(f"移动文件 {file_path} 时出错: {e}")
@@ -281,7 +335,7 @@ def organize_logs(dry_run=False):
 
 def cleanup_large_logs(max_log_size_mb=50, log_keep_count=5, dry_run=False):
     """清理大型日志文件，只保留最近的几个"""
-    logs_dir = Path("logs")
+    logs_dir = validate_path(PROJECT_ROOT / "logs")
     if not logs_dir.exists():
         logger.info("日志目录不存在")
         return 0, 0
@@ -300,12 +354,15 @@ def cleanup_large_logs(max_log_size_mb=50, log_keep_count=5, dry_run=False):
         log_files = list(subdir.glob("*.log"))
         # 先处理大型日志
         for log_file in log_files:
+            if not is_safe_path(log_file):
+                continue
+                
             size = log_file.stat().st_size
             if size > max_log_size_mb * 1024 * 1024:
                 logger.info(f"找到大型日志文件: {log_file} ({format_size(size)})")
                 if not dry_run:
                     try:
-                        log_file.unlink()
+                        safe_unlink(log_file)
                         logger.info(f"已删除: {log_file}")
                         cleaned_size += size
                         count += 1
@@ -319,11 +376,14 @@ def cleanup_large_logs(max_log_size_mb=50, log_keep_count=5, dry_run=False):
             log_files.sort(key=lambda x: x.stat().st_mtime, reverse=True)
             # 保留最新的几个
             for log_file in log_files[log_keep_count:]:
+                if not is_safe_path(log_file):
+                    continue
+                    
                 size = log_file.stat().st_size
                 logger.info(f"删除旧日志文件: {log_file} ({format_size(size)})")
                 if not dry_run:
                     try:
-                        log_file.unlink()
+                        safe_unlink(log_file)
                         logger.info(f"已删除: {log_file}")
                         cleaned_size += size
                         count += 1
@@ -340,7 +400,7 @@ def cleanup_merged_data(dry_run=False, force=False):
     - 删除可重新生成的合并文件：train_data.jsonl
     - 保证模型训练、验证和评估所需的数据完整性
     """
-    dataset_dir = Path("dataset")
+    dataset_dir = validate_path(PROJECT_ROOT / "dataset")
     if not dataset_dir.exists():
         logger.info("数据集目录不存在")
         return 0, 0
@@ -374,13 +434,16 @@ def cleanup_merged_data(dry_run=False, force=False):
     for file_name in merged_files:
         file_path = dataset_dir / file_name
         if file_path.exists():
+            if not is_safe_path(file_path):
+                continue
+                
             size = file_path.stat().st_size
             
             if not missing_files or force:
                 logger.info(f"找到合并数据文件: {file_path} ({format_size(size)})")
                 if not dry_run:
                     try:
-                        file_path.unlink()
+                        safe_unlink(file_path)
                         logger.info(f"已删除: {file_path} - 此文件可从核心训练文件重新生成")
                         cleaned_size += size
                         count += 1
@@ -402,7 +465,7 @@ def cleanup_merged_data(dry_run=False, force=False):
 
 def cleanup_pycache(dry_run=False):
     """清理所有__pycache__目录"""
-    pycache_dirs = list(Path(".").glob("**/__pycache__"))
+    pycache_dirs = list(PROJECT_ROOT.glob("**/__pycache__"))
     
     cleaned_size = 0
     count = 0
@@ -411,11 +474,14 @@ def cleanup_pycache(dry_run=False):
         if not pycache_dir.is_dir():
             continue
             
+        if not is_safe_path(pycache_dir):
+            continue
+            
         size = get_dir_size(pycache_dir)
         logger.info(f"找到__pycache__目录: {pycache_dir} ({format_size(size)})")
         if not dry_run:
             try:
-                shutil.rmtree(pycache_dir)
+                safe_rmtree(pycache_dir)
                 logger.info(f"已删除: {pycache_dir}")
                 cleaned_size += size
                 count += 1
@@ -430,11 +496,13 @@ def analyze_space_usage(min_size_mb=10, top_count=20):
     print("空间使用情况分析")
     print("=" * 60)
     
+    EXCLUDED_DIRS = {".git", "__pycache__", ".pytest_cache", ".mypy_cache", ".tox", "venv", ".venv", "node_modules"}
+    
     # 分析根目录大小
     root_dirs = []
-    for item in os.listdir("."):
-        item_path = os.path.join(".", item)
-        if os.path.isdir(item_path):
+    for item in os.listdir(PROJECT_ROOT):
+        item_path = PROJECT_ROOT / item
+        if item_path.is_dir():
             try:
                 size = get_dir_size(item_path)
                 root_dirs.append((item_path, size))
@@ -447,7 +515,7 @@ def analyze_space_usage(min_size_mb=10, top_count=20):
     # 显示根目录大小
     print(f"\n主要目录大小:")
     for dir_path, size in root_dirs:
-        print(f"  {dir_path:<25} {format_size(size):>10}")
+        print(f"  {dir_path.name:<25} {format_size(size):>10}")
     
     # 查找大文件
     print(f"\n最大的 {top_count} 个文件:")
@@ -459,7 +527,7 @@ def analyze_space_usage(min_size_mb=10, top_count=20):
     # 分析不同类型的文件
     print("\n按文件类型的空间使用:")
     file_types = {}
-    for root, dirs, files in os.walk("."):
+    for root, dirs, files in os.walk(PROJECT_ROOT):
         dirs[:] = [d for d in dirs if d not in EXCLUDED_DIRS]
         for file in files:
             try:
@@ -483,8 +551,8 @@ def analyze_space_usage(min_size_mb=10, top_count=20):
 
 def compare_directories():
     """比较collection和dataset目录，分析大小差异"""
-    collection_dir = Path("collection")
-    dataset_dir = Path("dataset")
+    collection_dir = PROJECT_ROOT / "collection"
+    dataset_dir = PROJECT_ROOT / "dataset"
     
     if not collection_dir.exists() or not dataset_dir.exists():
         print("无法比较：collection或dataset目录不存在")
@@ -525,80 +593,38 @@ def compare_directories():
         print(f"  {i}. {file_path.relative_to(dataset_dir)}: {format_size(size)}")
 
 def create_shell_script(dry_run=False):
-    """创建统一的日志清理和目录整理shell脚本"""
-    script_path = Path("cleanup.sh")
+    """创建安全的shell脚本，仅调用Python清理脚本"""
+    script_path = validate_path(PROJECT_ROOT / "cleanup.sh")
     
     # --- 在创建新脚本前删除旧脚本 --- #
     if not dry_run and script_path.exists():
         try:
-            script_path.unlink()
+            safe_unlink(script_path)
             logger.info(f"已删除旧的清理脚本: {script_path}")
         except OSError as e:
             logger.warning(f"无法删除旧的清理脚本 {script_path}: {e}")
-            # 如果无法删除，可能无法写入新脚本，可以选择继续或退出
     
+    # 创建一个简单、安全的脚本，仅调用Python清理脚本
     script_content = r"""#!/bin/bash
 
-# 灵猫墨韵系统 - 统一日志和临时文件清理脚本
-# 生成时间: $(date '+%Y-%m-%d %H:%M:%S')
+# 灵猫墨韵系统 - 安全清理脚本
+# 此脚本仅调用Python清理脚本，不执行直接删除操作
 
-# 配置参数
-LOGS_DIR="logs"               # 日志主目录
-KEEP_LOGS=10                  # 每个目录保留的最新日志文件数量
-MAX_LOG_SIZE=50               # 日志最大大小(MB)
-MIN_TEMP_SIZE=100             # 临时文件最小大小(MB)
-BACKUP_BEFORE_DELETE=true     # 删除前是否备份重要文件
-
-# 创建日志目录结构
-echo "正在整理日志目录结构..."
-mkdir -p logs/processor logs/tokenizer logs/train_model logs/generate logs/data
-
-# 移动日志文件到对应子目录
-echo "正在移动日志文件到对应子目录..."
-find logs -maxdepth 1 -name "processor_*.log" -exec mv {} logs/processor/ \;
-find logs -maxdepth 1 -name "tokenizer_*.log" -exec mv {} logs/tokenizer/ \;
-find logs -maxdepth 1 -name "train_*.log" -exec mv {} logs/train_model/ \;
-find logs -maxdepth 1 -name "model_*.log" -exec mv {} logs/train_model/ \;
-find logs -maxdepth 1 -name "generate_*.log" -exec mv {} logs/generate/ \;
-find logs -maxdepth 1 -name "gen_*.log" -exec mv {} logs/generate/ \;
-find logs -maxdepth 1 -name "data_*.log" -exec mv {} logs/data/ \;
-
-# 清理大型日志文件
-echo "正在清理大型日志文件..."
-for dir in logs/processor logs/tokenizer logs/train_model logs/generate logs/data; do
-  if [ -d "$dir" ]; then
-    # 删除超过大小限制的日志
-    find "$dir" -name "*.log" -size +${MAX_LOG_SIZE}M -exec rm {} \; -exec echo "已删除大型日志: {}" \;
-    
-    # 统计日志数量
-    LOG_COUNT=$(find "$dir" -name "*.log" | wc -l)
-    
-    # 如果日志数量超过保留数量，删除最老的日志
-    if [ "$LOG_COUNT" -gt "$KEEP_LOGS" ]; then
-      EXTRA_LOGS=$((LOG_COUNT - KEEP_LOGS))
-      echo "删除 $dir 中的 $EXTRA_LOGS 个旧日志文件..."
-      find "$dir" -name "*.log" -printf "%T@ %p\n" | sort -n | head -n $EXTRA_LOGS | cut -d' ' -f2- | xargs rm
-    fi
-  fi
-done
-
-# 清理Python缓存
-echo "正在清理Python缓存文件..."
-find . -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
-find . -name "*.pyc" -delete
-find . -name "*.pyo" -delete
-
-# 清理大型临时文件
-echo "正在清理大型临时文件..."
-find . -name "temp_*.*" -size +${MIN_TEMP_SIZE}M -exec rm {} \; -exec echo "已删除临时文件: {}" \;
-find . -name "*.tmp" -size +${MIN_TEMP_SIZE}M -exec rm {} \; -exec echo "已删除临时文件: {}" \;
-find . -name "*.bak" -size +${MIN_TEMP_SIZE}M -exec rm {} \; -exec echo "已删除临时文件: {}" \;
-
-# 删除temp_corpus.txt大文件
-if [ -f "temp_corpus.txt" ]; then
-  echo "删除大型临时语料文件: temp_corpus.txt"
-  rm temp_corpus.txt
+# 检查Python是否可用
+if ! command -v python3 &> /dev/null && ! command -v python &> /dev/null; then
+    echo "错误: 未找到Python"
+    exit 1
 fi
+
+# 使用Python3优先
+PYTHON_CMD="python3"
+if ! command -v python3 &> /dev/null; then
+    PYTHON_CMD="python"
+fi
+
+# 调用Python清理脚本执行所有清理操作
+echo "正在调用Python清理脚本..."
+"$PYTHON_CMD" "$(dirname "$0")/cleanup.py" --all "$@"
 
 echo "清理完成!"
 """
@@ -606,34 +632,13 @@ echo "清理完成!"
     logger.info(f"创建清理shell脚本: {script_path}")
 
     if not dry_run:
-        # Write to a temporary file first, then move into place – avoids
-        # race conditions and ensures the final file is always valid.
-        import tempfile as _tempfile
-        fd, tmp_path = _tempfile.mkstemp(suffix=".sh", prefix="cleanup_")
-        os.close(fd)
         try:
-            with open(tmp_path, "w") as f:
-                f.write("#!/bin/bash\n")
-                f.write("# Lingmao Moyun cleanup script\n")
-                f.write("# Generated: ")  # no-op placeholder (date not critical)
-                f.write("\n\n")
-                f.write("LOGS_DIR=\"logs\"\n")
-                f.write("KEEP_LOGS=10\n")
-                f.write("MAX_LOG_SIZE=50\n")
-                f.write("MIN_TEMP_SIZE=100\n")
-                f.write("\n")
-                f.write("mkdir -p \"$LOGS_DIR\"\n")
-                f.write("\n")
-                f.write("if \"$LOGS_DIR\" in \"*processor*\"; then :; fi\n")  # no-op placeholder
-                # Write script content but skip rm -rf on /
-            # Atomically rename into place
-            os.replace(tmp_path, script_path)
+            with open(script_path, "w") as f:
+                f.write(script_content)
             os.chmod(script_path, 0o755)
             logger.info(f"脚本已创建并设置可执行权限")
         except Exception as e:
             logger.error(f"无法创建清理脚本: {e}")
-            if os.path.exists(tmp_path):
-                os.unlink(tmp_path)
     return script_path
 
 def cleanup_shell_scripts(dry_run=False):
@@ -642,12 +647,12 @@ def cleanup_shell_scripts(dry_run=False):
     count = 0
     
     for script in old_scripts:
-        script_path = Path(script)
+        script_path = PROJECT_ROOT / script
         if script_path.exists():
             logger.info(f"找到旧的shell脚本: {script_path}")
             if not dry_run:
                 try:
-                    script_path.unlink()
+                    safe_unlink(script_path)
                     logger.info(f"已删除: {script_path}")
                     count += 1
                 except Exception as e:
@@ -686,7 +691,7 @@ def main():
     total_count = 0
     
     # 获取清理前的总大小
-    before_size = get_dir_size(".")
+    before_size = get_dir_size(PROJECT_ROOT)
     
     print("=" * 60)
     print(f"灵猫墨韵系统清理工具 - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
@@ -753,7 +758,7 @@ def main():
     
     if not args.dry_run and (args.all or args.temp or args.logs or args.data or args.pycache or args.clean_scripts):
         # 获取清理后的总大小
-        after_size = get_dir_size(".")
+        after_size = get_dir_size(PROJECT_ROOT)
         actual_reduction = before_size - after_size
         
         print("\n" + "=" * 60)
@@ -775,4 +780,4 @@ def main():
         print("=" * 60)
 
 if __name__ == "__main__":
-    main() 
+    main()

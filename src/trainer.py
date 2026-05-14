@@ -90,6 +90,7 @@ logger = get_logger("LingmaoMoyun.Trainer")
 
 # ─── Global signal state ──────────────────────────────────────────────────────
 TERMINATE_TRAINING = False
+SAVE_CHECKPOINT_SIGNAL = False
 
 
 def _is_night_mode() -> bool:
@@ -130,25 +131,14 @@ def _limit_gpu_memory(fraction: float) -> bool:
 # ─── Signal handling ──────────────────────────────────────────────────────────
 
 
-def _build_signal_handler(save_fn: callable) -> None:
-    """Install SIGINT/SIGTERM handlers that call ``save_fn`` before exiting."""
+def _build_signal_handler() -> None:
+    """Install SIGINT/SIGTERM handlers that set flags for main loop to handle."""
 
     def handler(sig: int, frame) -> None:  # type: ignore[no-untyped-def]
-        global TERMINATE_TRAINING
+        global TERMINATE_TRAINING, SAVE_CHECKPOINT_SIGNAL
         TERMINATE_TRAINING = True
-        logger.warning("Termination signal received – saving state …")
-
-        def force_exit() -> None:
-            logger.error("Save timed out – forcing exit")
-            os._exit(1)
-
-        timer = threading.Timer(FORCE_EXIT_DELAY_SECONDS, force_exit)
-        timer.start()
-
-        try:
-            save_fn()
-        finally:
-            timer.cancel()
+        SAVE_CHECKPOINT_SIGNAL = True
+        logger.warning("Termination signal received – will save checkpoint and exit …")
 
     signal.signal(signal.SIGINT, handler)
     signal.signal(signal.SIGTERM, handler)
@@ -414,7 +404,7 @@ def train_model(
             _limit_gpu_memory(NIGHT_MODE_GPU_MEMORY_FRAC)
             orig_bs = batch_size
             batch_size = max(2, batch_size // 2)
-            accumulation_steps = accumulation_steps * orig_bs // batch_size
+            accumulation_steps = max(1, accumulation_steps * orig_bs // batch_size)
 
     os.makedirs(model_save_dir, exist_ok=True)
 
@@ -449,7 +439,7 @@ def train_model(
         train_dataset,
         batch_size=batch_size,
         shuffle=True,
-        num_workers=0,
+        num_workers=4,  # 根据CPU核心数量调整，通常设为CPU核心数或其一半
         pin_memory=(device.type != "cpu"),
     )
 
@@ -466,7 +456,7 @@ def train_model(
             test_dataset,
             batch_size=batch_size,
             shuffle=False,
-            num_workers=0,
+            num_workers=4,  # 根据CPU核心数量调整，通常设为CPU核心数或其一半
             pin_memory=(device.type != "cpu"),
         )
 
@@ -592,18 +582,7 @@ def train_model(
         stats["gpu_memory_usage"] = []
 
     # ── Install signal handler ────────────────────────────────────────────────
-    _build_signal_handler(
-        lambda: save_checkpoint(
-            epoch=epochs - 1,
-            model=model,
-            optimizer=optimizer,
-            scheduler=scheduler,
-            scaler=scaler,
-            stats=stats,
-            save_dir=model_save_dir,
-            best_loss=best_loss,
-        )
-    )
+    _build_signal_handler()
 
     # ── Training loop ─────────────────────────────────────────────────────────
     logger.info(f"Starting training: {epochs} epochs from epoch {initial_epoch + 1}")
@@ -626,6 +605,24 @@ def train_model(
         optimizer.zero_grad()
 
         for step, batch in enumerate(pbar):
+            # 检查是否收到终止信号
+            if TERMINATE_TRAINING:
+                if SAVE_CHECKPOINT_SIGNAL:
+                    logger.warning("Saving checkpoint before termination …")
+                    save_checkpoint(
+                        epoch=epoch,
+                        model=model,
+                        optimizer=optimizer,
+                        scheduler=scheduler,
+                        scaler=scaler,
+                        stats=stats,
+                        save_dir=model_save_dir,
+                        best_loss=best_loss,
+                        name=f"interrupted_epoch_{epoch + 1}",
+                    )
+                    SAVE_CHECKPOINT_SIGNAL = False
+                break
+
             try:
                 input_ids, target_ids = _unpack_batch(batch, device)
             except Exception as e:
@@ -687,6 +684,11 @@ def train_model(
             f"time={epoch_elapsed:.1f}s"
         )
 
+        # 检查是否收到终止信号
+        if TERMINATE_TRAINING:
+            logger.warning("Terminating training early …")
+            break
+
         if test_loader is not None:
             test_loss = evaluate_model(
                 model, test_loader, criterion, device,
@@ -715,8 +717,17 @@ def train_model(
             )
 
     # ── Final save ────────────────────────────────────────────────────────────
-    final_path = Path(model_save_dir) / f"final_model_v{VERSION}.pt"
-    torch.save(model.state_dict(), final_path, weights_only=True)
-    logger.info(f"✅ Training complete. Final model → {final_path}")
+    save_checkpoint(
+        epoch=epochs - 1,
+        model=model,
+        optimizer=optimizer,
+        scheduler=scheduler,
+        scaler=scaler,
+        stats=stats,
+        save_dir=model_save_dir,
+        best_loss=best_loss,
+        name=f"final_model_v{VERSION}",
+    )
+    logger.info(f"✅ Training complete. Final model saved.")
 
     return model

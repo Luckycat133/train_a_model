@@ -7,8 +7,8 @@ import logging
 from tqdm import tqdm
 from datetime import datetime
 from pathlib import Path
-from functools import lru_cache
 import time
+from functools import lru_cache
 
 # 导入模型定义
 from src.model import SimpleTransformer as LingmaoLM
@@ -46,6 +46,42 @@ def setup_logger():
 
 logger = setup_logger()
 
+class TrieNode:
+    """前缀树节点"""
+    __slots__ = ['children', 'token']
+    def __init__(self):
+        self.children = {}
+        self.token = None
+
+class Trie:
+    """前缀树用于高效的最长匹配查找"""
+    def __init__(self):
+        self.root = TrieNode()
+    
+    def insert(self, token):
+        """向前缀树中插入一个token"""
+        node = self.root
+        for char in token:
+            if char not in node.children:
+                node.children[char] = TrieNode()
+            node = node.children[char]
+        node.token = token
+    
+    def find_longest_match(self, text, start):
+        """从文本的start位置开始，查找最长匹配的token"""
+        node = self.root
+        longest_match = None
+        longest_length = 0
+        for i in range(start, len(text)):
+            char = text[i]
+            if char not in node.children:
+                break
+            node = node.children[char]
+            if node.token is not None:
+                longest_match = node.token
+                longest_length = i - start + 1
+        return longest_match, longest_length
+
 def load_tokenizer(tokenizer_path):
     """加载分词器"""
     try:
@@ -69,8 +105,13 @@ def load_tokenizer(tokenizer_path):
                 self.eos_token_id = self.token_to_id.get(self.eos_token, 1)
                 self.special_tokens = {self.unk_token, self.eos_token, "<pad>", "<cls>", "<sep>"}
                 
-                # 性能优化：预计算长度排序的关键词
-                self.sorted_vocab = sorted(self.token_to_id.keys(), key=len, reverse=True)
+                # 构建前缀树
+                self.trie = Trie()
+                for token in self.token_to_id.keys():
+                    self.trie.insert(token)
+                
+                # 使用实例内部字典缓存编码结果
+                self.encode_cache = {}
                 
                 # 性能统计
                 self.encode_time = 0
@@ -79,33 +120,34 @@ def load_tokenizer(tokenizer_path):
                 
                 logger.info(f"加载的词表大小: {len(self.token_to_id)}")
                 if len(self.token_to_id) == 0:
-                    logger.warning("警告：词表为空，可能导致分词错误")
+                    logger.warning("警告: 词表为空，可能导致分词错误")
                 
                 for token in self.special_tokens:
                     if token not in self.token_to_id:
                         logger.warning(f"特殊token '{token}' 不在词表中")
             
-            @lru_cache(maxsize=16384)
             def _encode_cached(self, text):
-                """带缓存的编码实现"""
+                """使用前缀树的编码实现，带内部缓存"""
+                if text in self.encode_cache:
+                    return self.encode_cache[text]
+                
                 tokens = []
                 i = 0
                 while i < len(text):
-                    # 优化：使用预排序的词表按最长匹配查找
-                    matched = False
-                    for word in self.sorted_vocab:
-                        if text[i:].startswith(word):
-                            tokens.append(self.token_to_id[word])
-                            i += len(word)
-                            matched = True
-                            break
-                    
-                    # 如果没有匹配到，则使用单个字符并标记为未知token
-                    if not matched:
+                    # 使用前缀树查找最长匹配
+                    matched_token, matched_length = self.trie.find_longest_match(text, i)
+                    if matched_token is not None:
+                        tokens.append(self.token_to_id[matched_token])
+                        i += matched_length
+                    else:
+                        # 如果没有匹配到，则使用单个字符并标记为未知token
                         tokens.append(self.token_to_id.get(text[i], self.unk_token_id))
                         i += 1
                 
-                return tuple(tokens)  # 返回元组以支持LRU缓存
+                # 缓存结果
+                result = tuple(tokens)
+                self.encode_cache[text] = result
+                return result
             
             def encode(self, text):
                 """将文本编码为token ID序列，采用贪婪匹配方式尽可能匹配词表中的多字符token"""
@@ -199,6 +241,8 @@ def load_model(model_path, device="cpu"):
 
 def generate_text(model, tokenizer, prompt, max_length=100, temperature=0.7, top_k=50, top_p=0.9, device="cpu"):
     """生成文本"""
+    vocab_size = len(tokenizer.token_to_id)
+    
     # 将提示转换为token ID
     input_ids = tokenizer.encode(prompt)
     input_ids = torch.tensor(input_ids, dtype=torch.long).unsqueeze(0).to(device)
@@ -212,13 +256,15 @@ def generate_text(model, tokenizer, prompt, max_length=100, temperature=0.7, top
             # 取最后的context_length个tokens进行预测
             inputs = generated[:, -1024:] if generated.size(1) > 1024 else generated
             
-            # 预测下一个token
-            outputs = model(inputs)
+            # 预测下一个token - 模型返回 (output, present) 元组
+            outputs, _ = model(inputs)
             next_token_logits = outputs[:, -1, :] / temperature
             
-            # Top-K采样
+            # Top-K采样 - 修复边界条件
             if top_k > 0:
-                indices_to_remove = next_token_logits < torch.topk(next_token_logits, top_k)[0][..., -1, None]
+                # 添加边界检查：确保top_k不超过词表大小
+                effective_top_k = min(top_k, vocab_size)
+                indices_to_remove = next_token_logits < torch.topk(next_token_logits, effective_top_k)[0][..., -1, None]
                 next_token_logits[indices_to_remove] = float('-inf')
             
             # Top-p (nucleus) 采样
@@ -239,7 +285,7 @@ def generate_text(model, tokenizer, prompt, max_length=100, temperature=0.7, top
             next_token = torch.multinomial(probs, num_samples=1)
             
             # 添加到生成序列
-            generated = torch.cat((generated, next_token), dim=1)
+            generated = torch.cat([generated, next_token], dim=1)
             
             # 检查是否生成了结束标记
             if next_token.item() == tokenizer.eos_token_id:
