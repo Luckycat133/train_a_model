@@ -167,7 +167,10 @@ class ClassicalTokenizer:
     def encode(self, text: str) -> List[int]:
         """Convert text to a list of token IDs (alias for tokenize → id lookup)."""
         tokens = self.tokenize(text)
-        return [self.token_to_id.get(t, self.token_to_id.get("<unk>", 0)) for t in tokens]
+        if not tokens:
+            return []
+        unk_id = self.token_to_id.get("<unk>", 0) if self.token_to_id else 0
+        return [self.token_to_id.get(t, unk_id) for t in tokens]
 
 
     def decode(self, ids: List[int]) -> str:

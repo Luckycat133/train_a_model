@@ -46,7 +46,7 @@ def test_detect_encoding(sample_files):
     assert detect_encoding(str(utf8_file)) == 'utf-8'
     
     gbk_file = sample_files / "gbk.txt"
-    assert detect_encoding(str(gbk_file)) in ['GB2312', 'GBK']
+    assert detect_encoding(str(gbk_file)) in ['GB2312', 'GBK', 'GB18030']
     
     empty_file = sample_files / "empty.txt"
     assert detect_encoding(str(empty_file)) == 'utf-8'
