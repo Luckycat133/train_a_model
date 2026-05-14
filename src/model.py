@@ -284,9 +284,9 @@ class MoELayer(nn.Module):
 
         # Compute load-balancing auxiliary loss (DeepSeek-V3 style)
         # This encourages equal utilization across experts to prevent expert collapse
+        token_load = router_probs.mean(dim=0)  # [num_experts]
         if self.aux_loss_coef > 0 and self.training:
             # Fraction of tokens routed to each expert (before top-k masking)
-            token_load = router_probs.mean(dim=0)  # [num_experts]
             # Fraction of routing weight assigned to each expert (after top-k)
             weight_load = weights.sum(dim=0) / self.top_k  # [num_experts]
             # Load-balancing loss: penalize unequal distribution
@@ -296,20 +296,32 @@ class MoELayer(nn.Module):
         else:
             aux_loss = torch.zeros(1, device=x.device, dtype=x.dtype)
 
-        for k_idx in range(self.top_k):
-            expert_weights = weights[:, k_idx]  # [num_tokens]
-            expert_ids = indices[:, k_idx]     # [num_tokens]
-
-            for expert_id in range(self.num_experts):
-                token_mask = (expert_ids == expert_id)  # [num_tokens] bool
-                if not token_mask.any():
-                    continue
-                expert_out = self.experts[expert_id](x_flat[token_mask])  # [active, d_model]
-                out[token_mask] += expert_out * expert_weights[token_mask].unsqueeze(-1)
+        # Optimized implementation: process each expert once, handling all tokens assigned to it across all k positions
+        for expert_id in range(self.num_experts):
+            # Find all positions where this expert is selected in any of the top-k
+            token_masks = []
+            weight_values = []
+            for k_idx in range(self.top_k):
+                mask = (indices[:, k_idx] == expert_id)  # [num_tokens] bool
+                if mask.any():
+                    token_masks.append(mask)
+                    weight_values.append(weights[:, k_idx][mask])
+            if not token_masks:
+                continue
+            # Combine all masks for this expert
+            combined_mask = torch.stack(token_masks, dim=0).any(dim=0)
+            # Get all tokens assigned to this expert
+            x_selected = x_flat[combined_mask]
+            # Process through expert
+            expert_out = self.experts[expert_id](x_selected)
+            # Distribute back to original positions with respective weights
+            for i, mask in enumerate(token_masks):
+                out[mask] += expert_out[combined_mask[mask]] * weight_values[i].unsqueeze(-1)
 
         # Update running load factor for monitoring
         with torch.no_grad():
-            self.expert_load = token_load.detach() if self.training else self.expert_load
+            # Ensure we update expert_load regardless of training mode for consistency
+            self.expert_load.copy_(token_load.detach())
 
         return out.view(B, L, D), aux_loss
 
@@ -476,22 +488,45 @@ class ModernAttention(nn.Module):
         if self.use_sliding_window and L > 1:
             # Create sliding window mask: each position only attends to window_size tokens before
             seq_len = k.shape[1]
+            # For the current query positions (L positions)
+            current_query_len = L
+            # Compute which key positions are allowed
+            col_indices = torch.arange(seq_len, device=x.device).unsqueeze(0)  # [1, seq_len]
+            row_indices = torch.arange(seq_len - current_query_len, seq_len, device=x.device).unsqueeze(1)  # [L, 1]
+            
+            # Each position i can see:
+            # - j <= i (causal)
+            # - j >= i - window_size + 1 (sliding window)
+            within_window = (col_indices <= row_indices) & (col_indices >= row_indices - self.window_size + 1)
+            
             if self.use_flash_attention:
-                # For SDPA: create a causal mask that respects window_size
-                # Positions beyond window_size get -inf attention
-                import torch
-                casual_for_swa = torch.triu(
-                    torch.ones(seq_len, seq_len, device=x.device, dtype=torch.bool), diagonal=1
-                )
-                # Also mask out tokens earlier than window_size (for SWA with left-side window)
-                window_ones = torch.ones(seq_len, seq_len, device=x.device, dtype=torch.bool)
-                col_indices = torch.arange(seq_len, device=x.device).unsqueeze(0)  # [1, seq_len]
-                row_indices = torch.arange(seq_len, device=x.device).unsqueeze(1)  # [seq_len, 1]
-                within_window = (col_indices <= row_indices) & (col_indices >= row_indices - self.window_size + 1)
-                swa_mask = ~(within_window & casual_for_swa)
-                # Combine with existing attention mask
+                # For SDPA: create a boolean mask
+                # We need to convert to additive mask (-inf for masked positions)
+                # SDPA expects mask of shape [B, H, L, seq_len] or broadcastable
+                swa_mask = ~within_window  # True means masked
+                # Expand to batch and heads dimensions
+                swa_mask = swa_mask.unsqueeze(0).unsqueeze(0)  # [1, 1, L, seq_len]
+                # Convert to additive mask (-inf for masked positions)
+                additive_mask = torch.zeros_like(swa_mask, dtype=x.dtype)
+                additive_mask.masked_fill_(swa_mask, float("-inf"))
+                
                 if attention_mask is not None:
-                    attn_mask = attention_mask & swa_mask
+                    if attention_mask.dtype == torch.bool:
+                        # Boolean mask, convert to additive
+                        attention_mask = attention_mask.to(x.dtype)
+                        attention_mask.masked_fill_(~attention_mask, float("-inf"))
+                    # Combine masks
+                    attn_mask = attention_mask + additive_mask
+                else:
+                    attn_mask = additive_mask
+            else:
+                # For naive attention: create boolean mask
+                swa_mask = ~within_window  # True means masked
+                if attention_mask is not None:
+                    if attention_mask.dtype != torch.bool:
+                        # Convert additive mask to boolean
+                        attention_mask = attention_mask != float("-inf")
+                    attn_mask = ~attention_mask | swa_mask
                 else:
                     attn_mask = swa_mask
 
@@ -820,40 +855,3 @@ class SimpleTransformer(nn.Module):
 
         output = self.output_layer(output)
         return output, present
-        """Forward pass.
-
-        Args:
-            src: LongTensor of shape [batch_size, seq_len].
-            attention_mask: Optional attention mask for modern mode.
-
-        Returns:
-            FloatTensor of shape [batch_size, seq_len, vocab_size].
-        """
-        if self.mode == "legacy":
-            src = self.embedding(src) * math.sqrt(self.d_model)
-            src = self.pos_encoder(src)
-            if self.use_checkpoint:
-                # Use gradient checkpointing for memory-efficient training
-                output = torch.utils.checkpoint.checkpoint(
-                    self.transformer_encoder, src, use_reentrant=False
-                )
-            else:
-                output = self.transformer_encoder(src)
-        else:
-            src = self.embedding(src)
-            if getattr(self, 'gradient_checkpointing', False):
-                # Use checkpoint_sequential for memory-efficient training
-                # attention_mask is passed as None during checkpointing (typical for causal attention)
-                src = torch.utils.checkpoint.checkpoint_sequential(
-                    self.transformer_blocks,
-                    GRADIENT_CHECKPOINTING_CHUNKS,
-                    src,
-                    attention_mask=None,
-                )
-            else:
-                for block in self.transformer_blocks:
-                    src = block(src, attention_mask=attention_mask)
-            output = self.norm(src)
-
-        output = self.output_layer(output)
-        return output
