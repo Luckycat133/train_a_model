@@ -1,7 +1,7 @@
 """Training loop, evaluation, and checkpoint utilities.
 
 All functions that live in the original monolithic ``train_model.py`` are
-collected here.  The top-level ``run`` function is in ``src/run.py``.
+collected here. The top-level ``run`` function is in ``src/run.py``.
 """
 
 import argparse
@@ -12,6 +12,7 @@ import shutil
 import signal
 import threading
 import time
+import psutil
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -91,6 +92,67 @@ logger = get_logger("LingmaoMoyun.Trainer")
 # ─── Global signal state ──────────────────────────────────────────────────────
 TERMINATE_TRAINING = False
 SAVE_CHECKPOINT_SIGNAL = False
+
+# ─── System monitoring functions ──────────────────────────────────────────────
+
+def get_system_memory_info():
+    """Get system memory usage information."""
+    mem = psutil.virtual_memory()
+    return {
+        'total': mem.total,
+        'used': mem.used,
+        'free': mem.free,
+        'percent': mem.percent,
+        'available': mem.available
+    }
+
+def get_gpu_info():
+    """Get GPU information if available."""
+    if torch is None or not torch.cuda.is_available():
+        return None
+    
+    gpu_info = []
+    for i in range(torch.cuda.device_count()):
+        device = torch.cuda.device(i)
+        props = torch.cuda.get_device_properties(i)
+        mem_allocated = torch.cuda.memory_allocated(i)
+        mem_reserved = torch.cuda.memory_reserved(i)
+        
+        gpu_info.append({
+            'device_id': i,
+            'name': props.name,
+            'total_memory': props.total_memory,
+            'memory_allocated': mem_allocated,
+            'memory_reserved': mem_reserved,
+            'memory_free': props.total_memory - mem_reserved,
+            'utilization': torch.cuda.utilization(i) if hasattr(torch.cuda, 'utilization') else None
+        })
+    return gpu_info
+
+def log_system_stats():
+    """Log system resource statistics."""
+    mem_info = get_system_memory_info()
+    gpu_info = get_gpu_info()
+    
+    stats_log = []
+    stats_log.append(f"System Memory: {mem_info['used'] / 1024**3:.2f} GB / {mem_info['total'] / 1024**3:.2f} GB ({mem_info['percent']}%)")
+    
+    if gpu_info:
+        for gpu in gpu_info:
+            stats_log.append(
+                f"GPU {gpu['device_id']}: {gpu['name']} - "
+                f"Allocated: {gpu['memory_allocated'] / 1024**3:.2f} GB / "
+                f"Total: {gpu['total_memory'] / 1024**3:.2f} GB"
+            )
+            if gpu['utilization'] is not None:
+                stats_log[-1] += f" | Utilization: {gpu['utilization']}%"
+    
+    logger.info(" | ".join(stats_log))
+    
+    return {
+        'memory': mem_info,
+        'gpu': gpu_info
+    }
 
 
 def _is_night_mode() -> bool:
@@ -374,10 +436,20 @@ def train_model(
     use_weight_tying: bool = USE_WEIGHT_TYING,
     use_sliding_window: bool = USE_SLIDING_WINDOW,
     window_size: int = SWA_WINDOW_SIZE,
+    mode: str = "modern",  # Added for explicit mode selection
+    num_kv_heads: Optional[int] = NUM_KV_HEADS,  # Added for configurable GQA
+    use_moe: bool = False,  # Added for MoE support
+    num_experts: int = 8,  # Added for MoE configuration
+    top_k: int = 2,  # Added for MoE configuration
+    log_stats_interval: int = 100,  # Added for stats logging interval
 ) -> nn.Module:
     """Train a language model end-to-end.
 
     See ``run.py`` for the CLI entry point.
+
+    New architecture support:
+    - Modern mode: RoPE, SwiGLU, GQA, Flash Attention, optional MoE
+    - Legacy mode: Original sinusoidal PE + TransformerEncoder
     """
     import torch.nn.functional as F  # noqa: F401 – used via criterion
 
@@ -395,6 +467,10 @@ def train_model(
             device = torch.device("cpu")
 
     logger.info(f"Training device: {device}")
+
+    # Log initial system stats
+    logger.info("Initial system statistics:")
+    log_system_stats()
 
     # ── Night-mode adjustments ───────────────────────────────────────────────
     if night_mode and _is_night_mode():
@@ -439,8 +515,9 @@ def train_model(
         train_dataset,
         batch_size=batch_size,
         shuffle=True,
-        num_workers=4,  # 根据CPU核心数量调整，通常设为CPU核心数或其一半
+        num_workers=4,  # Optimal worker count for modern systems
         pin_memory=(device.type != "cpu"),
+        drop_last=True,  # Added for stable batch processing
     )
 
     test_loader: Optional[DataLoader] = None
@@ -456,11 +533,12 @@ def train_model(
             test_dataset,
             batch_size=batch_size,
             shuffle=False,
-            num_workers=4,  # 根据CPU核心数量调整，通常设为CPU核心数或其一半
+            num_workers=4,  # Optimal worker count
             pin_memory=(device.type != "cpu"),
         )
 
     # ── Model ─────────────────────────────────────────────────────────────────
+    logger.info(f"Creating model in {mode} mode")
     model = SimpleTransformer(
         vocab_size=vocab_size,
         d_model=d_model,
@@ -469,11 +547,24 @@ def train_model(
         dim_feedforward=dim_feedforward,
         dropout=dropout,
         use_checkpoint=use_checkpoint,
-        num_kv_heads=NUM_KV_HEADS,
+        num_kv_heads=num_kv_heads,
         use_weight_tying=use_weight_tying,
         use_sliding_window=use_sliding_window,
         window_size=window_size,
+        mode=mode,
+        use_moe=use_moe,
+        num_experts=num_experts,
+        top_k=top_k,
     ).to(device)
+
+    # Log model architecture info
+    logger.info(f"Model architecture: {mode} mode")
+    if mode == "modern":
+        if num_kv_heads and num_kv_heads < nhead:
+            logger.info(f"  - GQA enabled: {nhead} query heads, {num_kv_heads} KV heads")
+        if use_moe:
+            logger.info(f"  - MoE enabled: {num_experts} experts, top-{top_k} routing")
+        logger.info(f"  - Flash Attention: {'enabled' if device.type == 'cuda' else 'disabled (CPU)'}")
 
     # ── torch.compile (PyTorch 2.0+ Graph Compile) ─────────────────────────────
     if use_compile:
@@ -570,13 +661,15 @@ def train_model(
 
     criterion = nn.CrossEntropyLoss(label_smoothing=LABEL_SMOOTHING)
 
-    # ── Stats dict – FIX: initialise all keys including 'steps' ─────────────
+    # ── Stats dict – Initialise with system monitoring ─────────────
     stats: Dict[str, List[Any]] = {
         "losses": [],
         "learning_rates": [],
         "epoch_times": [],
         "test_losses": [],
-        "steps": [],  # <-- was missing, caused KeyError
+        "steps": [],
+        "system_memory": [],  # Added for system memory monitoring
+        "gpu_usage": [],      # Added for GPU usage monitoring
     }
     if torch is not None and torch.cuda.is_available():
         stats["gpu_memory_usage"] = []
@@ -605,7 +698,7 @@ def train_model(
         optimizer.zero_grad()
 
         for step, batch in enumerate(pbar):
-            # 检查是否收到终止信号
+            # Check for termination signal using global flags
             if TERMINATE_TRAINING:
                 if SAVE_CHECKPOINT_SIGNAL:
                     logger.warning("Saving checkpoint before termination …")
@@ -667,6 +760,13 @@ def train_model(
             stats["losses"].append(avg_loss)
             stats["learning_rates"].append(cur_lr)
 
+            # Log system stats periodically
+            if step % log_stats_interval == 0:
+                system_stats = log_system_stats()
+                stats["system_memory"].append(system_stats["memory"].percent)
+                if system_stats["gpu"]:
+                    stats["gpu_usage"].append(system_stats["gpu"][0].get("utilization", 0))
+
             if (
                 torch is not None
                 and torch.cuda.is_available()
@@ -683,8 +783,12 @@ def train_model(
             f"Epoch {epoch + 1}/{epochs} done – loss={epoch_loss:.4f}, "
             f"time={epoch_elapsed:.1f}s"
         )
+        
+        # Log epoch end system stats
+        logger.info("End of epoch system statistics:")
+        log_system_stats()
 
-        # 检查是否收到终止信号
+        # Check for termination signal
         if TERMINATE_TRAINING:
             logger.warning("Terminating training early …")
             break

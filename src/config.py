@@ -70,6 +70,11 @@ USE_WEIGHT_TYING = True  # Tie embedding and output layer weights (reduces param
 USE_SLIDING_WINDOW = False  # Enable sliding window attention (SWA)
 SWA_WINDOW_SIZE = 512  # Window size for SWA (must be power of 2 for efficiency)
 
+# ─── Multi-Head Latent Attention (MLA) ─────────────────────────────────────────
+USE_MLA = False  # Enable Multi-Head Latent Attention for memory-efficient KV cache
+MLA_LATENT_DIM = 128  # Latent dimension for KV compression in MLA
+MLA_NUM_LATENT_HEADS = 4  # Number of latent attention heads
+
 # ─── Modern Tokenization ──────────────────────────────────────────────────────
 USE_BPE_TOKENIZER = False  # Use sentencepiece BPE instead of max-match
 BPE_VOCAB_SIZE = 32768  # Standard BPE vocab for Chinese
