@@ -30,6 +30,8 @@ class GenerationConfig:
     eos_token_id: Optional[int] = None
     max_new_tokens: Optional[int] = None
     stopping_criteria: Optional[List[int]] = None
+    use_compile: bool = False
+    compile_mode: str = "max-autotune"
 
 
 class TrieNode:
@@ -188,8 +190,18 @@ def load_tokenizer(tokenizer_path):
         return None
 
 
-def load_model(model_path, device="cpu"):
-    """加载模型"""
+def load_model(model_path, device="cpu", use_compile=False, compile_mode="max-autotune"):
+    """加载模型
+    
+    Args:
+        model_path: 模型文件路径
+        device: 设备
+        use_compile: 是否使用 torch.compile() 加速推理
+        compile_mode: 编译模式 ("max-autotune" for inference, "reduce-overhead" for training)
+    
+    Returns:
+        加载的模型（可能是编译后的版本）
+    """
     try:
         checkpoint = torch.load(model_path, map_location=device, weights_only=True)
         state_dict = checkpoint['model_state_dict']
@@ -224,10 +236,24 @@ def load_model(model_path, device="cpu"):
         
         model.load_state_dict(checkpoint['model_state_dict'])
         model.eval()
-        model = model.to(device)
+        
+        if use_compile:
+            if hasattr(model, 'compile'):
+                compile_start = time.time()
+                model = torch.compile(model, mode=compile_mode, dynamic=True)
+                if logger:
+                    logger.info(f"模型已编译 (mode={compile_mode}), 耗时: {time.time() - compile_start:.2f}s")
+            else:
+                if logger:
+                    logger.warning("模型不支持 torch.compile(), 使用原始模型")
+        else:
+            model = model.to(device)
         
         if logger:
             logger.info(f"模型已加载: {model_path}")
+            if use_compile:
+                logger.info(f"  - 使用 torch.compile() 加速 (mode={compile_mode})")
+        
         return model
     except Exception as e:
         if logger:
@@ -501,6 +527,10 @@ def main():
     parser.add_argument("--repetition_penalty", type=float, default=1.0, help="重复惩罚参数")
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu", help="设备")
     parser.add_argument("--stream", action="store_true", help="流式输出")
+    parser.add_argument("--compile", action="store_true", help="使用 torch.compile() 加速推理")
+    parser.add_argument("--compile_mode", type=str, default="max-autotune", 
+                        choices=["default", "reduce-overhead", "max-autotune"],
+                        help="torch.compile() 模式: max-autotune(推理推荐), reduce-overhead(训练推荐)")
     
     args = parser.parse_args()
     
@@ -509,7 +539,8 @@ def main():
         logger.error("分词器加载失败，程序退出")
         return
     
-    model = load_model(args.model, device=args.device)
+    model = load_model(args.model, device=args.device, 
+                       use_compile=args.compile, compile_mode=args.compile_mode)
     if model is None:
         logger.error("模型加载失败，程序退出")
         return

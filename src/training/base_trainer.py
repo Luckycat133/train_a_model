@@ -1,8 +1,21 @@
 """Base trainer interface for the Lingmao Moyun training system.
 
-This module defines the abstract base class that all training paradigms
-(pretraining, SFT, RL) must implement, ensuring a consistent interface
-and shared functionality across different training approaches.
+2025-2026 Best Practice: This module integrates HuggingFace Accelerate for
+simplified distributed training. Key features:
+- Automatic multi-GPU/TPU handling via Accelerator
+- Mixed precision (bf16/fp16) with automatic device management
+- Simplified gradient checkpointing and accumulation
+- No manual rank/sync判断 needed
+- Zero code changes when switching single/multi-GPU
+
+Usage:
+    trainer = BaseTrainer(config, use_accelerate=True)  # Recommended (default)
+    trainer = BaseTrainer(config, use_accelerate=False)  # Legacy mode
+
+Accelerate Benefits:
+    - 4-5 lines to enable distributed training
+    - Automatic gradient scaling and device placement
+    - Simplified checkpoint saving/loading across ranks
 """
 
 from __future__ import annotations
@@ -103,6 +116,13 @@ try:
 except ImportError:
     T = TypeVar("T")
 
+try:
+    from accelerate import Accelerator
+    ACCELERATE_AVAILABLE = True
+except ImportError:
+    Accelerator = None
+    ACCELERATE_AVAILABLE = False
+
 
 @dataclass
 class TrainingConfig:
@@ -167,10 +187,16 @@ class TrainingConfig:
     use_moe: bool = False
     num_experts: int = 8
     top_k: int = 2
-    use_gradient_checkpointing: bool = True
+    use_gradient_checkpointing: bool = False
+    gradient_checkpointing_ratio: float = 1.0
     use_weight_tying: bool = True
     use_sliding_window: bool = False
     window_size: int = 512
+
+    compile_model: bool = False
+    compile_mode: str = "reduce-overhead"
+    compile_backend: str = "inductor"
+    compile_dynamic: bool = True
 
     @classmethod
     def from_dict(cls, config: Dict[str, Any]) -> "TrainingConfig":
@@ -333,12 +359,44 @@ class BaseTrainer(ABC):
         train_loader: Optional[DataLoader] = None,
         eval_loader: Optional[DataLoader] = None,
         device: Optional[torch.device] = None,
+        use_accelerate: bool = True,
     ):
+        """Initialize BaseTrainer.
+
+        Args:
+            config: Training configuration.
+            model: Pre-built model (optional, can be built in fit()).
+            train_loader: Training data loader.
+            eval_loader: Evaluation data loader.
+            device: Target device (auto-detected if None).
+            use_accelerate: Use HuggingFace Accelerate for distributed training.
+                Default True. Set False for legacy manual device management.
+
+        2025-2026 Best Practice:
+            use_accelerate=True enables:
+            - Automatic multi-GPU/TPU handling
+            - Mixed precision without manual scaler management
+            - Simplified gradient accumulation
+            - No manual .to(device) or rank判断 needed
+        """
         self.config = config
         self.model = model
         self.train_loader = train_loader
         self.eval_loader = eval_loader
-        self.device = device or self._get_device()
+        self.use_accelerate = use_accelerate and ACCELERATE_AVAILABLE
+        self.accelerator: Optional[Accelerator] = None
+
+        if self.use_accelerate:
+            amp_dtype = "bf16" if config.amp_dtype == "bf16" else "fp16"
+            self.accelerator = Accelerator(
+                mixed_precision=amp_dtype if config.use_amp else "no",
+                gradient_accumulation_steps=config.accumulation_steps,
+                device_placement=False,
+            )
+            self.device = self.accelerator.device
+        else:
+            self.device = device or self._get_device()
+
         self.stats = TrainingStats()
         self.checkpoint_manager = CheckpointManager(
             config.model_save_dir,
@@ -353,12 +411,13 @@ class BaseTrainer(ABC):
         self._setup_signal_handlers()
         self._setup_metrics()
 
-        logger.info(f"Trainer initialized on device: {self.device}")
+        mode_str = "Accelerate" if self.use_accelerate else "Legacy"
+        logger.info(f"Trainer initialized ({mode_str}) on device: {self.device}")
 
     def _get_device(self) -> torch.device:
         """Auto-detect the best available device."""
         if torch is None:
-            return torch.device("cpu")
+            return None
 
         if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
             return torch.device("mps")
@@ -405,42 +464,67 @@ class BaseTrainer(ABC):
     ) -> Dict[str, float]:
         """Execute a single training step.
 
-        Handles gradient scaling, accumulation, and optimization.
+        2025-2026 Best Practice:
+            When use_accelerate=True:
+                loss, metrics = self.compute_loss(batch)
+                accelerator.backward(loss)  # 自动处理混合精度和梯度缩放
+                accelerator.step(self.optimizer)
+                accelerator.zero_grad()
+
+            When use_accelerate=False (Legacy):
+                使用手动autocast + GradScaler管理
         """
         if self.model is None:
             raise RuntimeError("Model not initialized")
 
-        use_amp = self.config.use_amp and self.device.type == "cuda"
-        amp_dtype = torch.bfloat16 if self.config.amp_dtype == "bf16" else torch.float16
-
-        with autocast(enabled=use_amp, device_type=self.device.type, dtype=amp_dtype):
+        if self.use_accelerate:
             loss, metrics = self.compute_loss(batch)
+            self.accelerator.backward(loss)
 
-        loss = loss / self.config.accumulation_steps
+            if (self.stats.current_step + 1) % self.config.accumulation_steps == 0:
+                if self.config.max_grad_norm > 0:
+                    self.accelerator.clip_grad_norm_(self.model.parameters(), self.config.max_grad_norm)
+                self.accelerator.step(self.optimizer)
+                self.accelerator.zero_grad()
+                if self.scheduler:
+                    self.scheduler.step()
 
-        self.scaler.scale(loss).backward()
+            return {"loss": loss.item(), **metrics}
+        else:
+            use_amp = self.config.use_amp and self.device.type == "cuda"
+            amp_dtype = torch.bfloat16 if self.config.amp_dtype == "bf16" else torch.float16
 
-        step_metrics = {"loss": loss.item() * self.config.accumulation_steps, **metrics}
+            with autocast(enabled=use_amp, device_type=self.device.type, dtype=amp_dtype):
+                loss, metrics = self.compute_loss(batch)
 
-        if (self.stats.current_step + 1) % self.config.accumulation_steps == 0:
-            if self.config.max_grad_norm > 0:
-                if self.scaler is not None:
-                    self.scaler.unscale_(self.optimizer)
-                torch.nn.utils.clip_grad_norm_(
-                    self.model.parameters(), self.config.max_grad_norm
-                )
+            loss = loss / self.config.accumulation_steps
 
             if self.scaler is not None:
-                self.scaler.step(self.optimizer)
-                self.scaler.update()
+                self.scaler.scale(loss).backward()
             else:
-                self.optimizer.step()
+                loss.backward()
 
-            self.optimizer.zero_grad()
-            if self.scheduler:
-                self.scheduler.step()
+            step_metrics = {"loss": loss.item() * self.config.accumulation_steps, **metrics}
 
-        return step_metrics
+            if (self.stats.current_step + 1) % self.config.accumulation_steps == 0:
+                if self.config.max_grad_norm > 0:
+                    if self.scaler is not None:
+                        self.scaler.unscale_(self.optimizer)
+                    torch.nn.utils.clip_grad_norm_(
+                        self.model.parameters(), self.config.max_grad_norm
+                    )
+
+                if self.scaler is not None:
+                    self.scaler.step(self.optimizer)
+                    self.scaler.update()
+                else:
+                    self.optimizer.step()
+
+                self.optimizer.zero_grad()
+                if self.scheduler:
+                    self.scheduler.step()
+
+            return step_metrics
 
     def eval_step(self, batch: Dict[str, torch.Tensor]) -> Dict[str, float]:
         """Execute a single evaluation step."""
@@ -514,49 +598,69 @@ class BaseTrainer(ABC):
         return GradScaler('cuda', bf16=False)
 
     def fit(self) -> nn.Module:
-        """Main training loop.
+        """Main training loop with Accelerate integration.
 
-        Implements the standard training loop with:
-        - Epoch-based iteration
-        - Gradient accumulation
-        - Checkpointing
-        - Early stopping
-        - Evaluation
-        - Signal handling for graceful shutdown
+        2025-2026 Best Practice: When use_accelerate=True (default):
+            - 4-5 lines enable distributed training
+            - accelerator.prepare() handles device placement
+            - accelerator.backward(loss) for gradient scaling
+            - No manual rank判断 needed
+            - Automatic mixed precision via Accelerator
         """
         if self.model is None:
             self.model = self.build_model()
-        self.model.to(self.device)
 
         self.optimizer = self.build_optimizer()
+
+        if self.use_accelerate:
+            self.model, self.optimizer, self.train_loader = self.accelerator.prepare(
+                self.model, self.optimizer, self.train_loader
+            )
+            if self.eval_loader is not None:
+                self.eval_loader = self.accelerator.prepare(self.eval_loader)
+            self.scaler = None
+        else:
+            self.model.to(self.device)
+            self.scaler = self.build_scaler()
+
         self.scheduler = self.build_scheduler()
-        self.scaler = self.build_scaler()
+
+        self._apply_compile()
+        self._apply_gradient_checkpointing()
 
         self._before_training()
 
         start_epoch = 0
         if self.config.resume_from:
             if os.path.exists(self.config.resume_from):
-                epoch, step, best_loss, _ = self.checkpoint_manager.load(
-                    self.config.resume_from, self.model, self.optimizer,
-                    self.scheduler, self.device
-                )
-                start_epoch = epoch + 1
-                self.stats.best_loss = best_loss
-                self.stats.current_step = step
-                logger.info(f"Resumed from epoch {epoch}, step {step}")
-        elif self.config.auto_resume:
-            latest = self.checkpoint_manager.find_latest()
-            if latest:
-                try:
+                if self.use_accelerate:
+                    self.accelerator.load_state(self.config.resume_from)
+                    logger.info(f"Resumed from {self.config.resume_from}")
+                else:
                     epoch, step, best_loss, _ = self.checkpoint_manager.load(
-                        latest, self.model, self.optimizer,
+                        self.config.resume_from, self.model, self.optimizer,
                         self.scheduler, self.device
                     )
                     start_epoch = epoch + 1
                     self.stats.best_loss = best_loss
                     self.stats.current_step = step
-                    logger.info(f"Auto-resumed from {latest}")
+                    logger.info(f"Resumed from epoch {epoch}, step {step}")
+        elif self.config.auto_resume:
+            latest = self.checkpoint_manager.find_latest()
+            if latest:
+                try:
+                    if self.use_accelerate:
+                        self.accelerator.load_state(latest)
+                        logger.info(f"Auto-resumed from {latest}")
+                    else:
+                        epoch, step, best_loss, _ = self.checkpoint_manager.load(
+                            latest, self.model, self.optimizer,
+                            self.scheduler, self.device
+                        )
+                        start_epoch = epoch + 1
+                        self.stats.best_loss = best_loss
+                        self.stats.current_step = step
+                        logger.info(f"Auto-resumed from {latest}")
                 except Exception as e:
                     logger.warning(f"Could not load checkpoint: {e}")
 
@@ -647,35 +751,44 @@ class BaseTrainer(ABC):
                 if is_best:
                     best_eval_loss = avg_epoch_loss
 
-                self.checkpoint_manager.save(
-                    model=self.model,
-                    optimizer=self.optimizer,
-                    scheduler=self.scheduler,
-                    scaler=self.scaler,
-                    stats=self.stats,
-                    epoch=epoch,
-                    step=self.stats.current_step,
-                    is_best=is_best,
-                    extra_state=self._get_extra_checkpoint_state(),
-                )
+                if self.use_accelerate:
+                    save_dir = self.checkpoint_manager.save_dir
+                    self.accelerator.save_state(str(save_dir / f"epoch_{epoch}_step_{self.stats.current_step}"))
+                else:
+                    self.checkpoint_manager.save(
+                        model=self.model,
+                        optimizer=self.optimizer,
+                        scheduler=self.scheduler,
+                        scaler=self.scaler,
+                        stats=self.stats,
+                        epoch=epoch,
+                        step=self.stats.current_step,
+                        is_best=is_best,
+                        extra_state=self._get_extra_checkpoint_state(),
+                    )
 
             self._on_epoch_complete(epoch, avg_epoch_loss)
 
         self._after_training()
 
         if self.model is not None:
-            final_path = self.checkpoint_manager.save(
-                model=self.model,
-                optimizer=self.optimizer,
-                scheduler=self.scheduler,
-                scaler=self.scaler,
-                stats=self.stats,
-                epoch=self.config.epochs - 1,
-                step=self.stats.current_step,
-                is_best=False,
-                extra_state=self._get_extra_checkpoint_state(),
-            )
-            logger.info(f"Training complete. Final model saved to {final_path}")
+            if self.use_accelerate:
+                final_dir = self.checkpoint_manager.save_dir / "final"
+                self.accelerator.save_state(str(final_dir))
+                logger.info(f"Training complete. Final state saved to {final_dir}")
+            else:
+                final_path = self.checkpoint_manager.save(
+                    model=self.model,
+                    optimizer=self.optimizer,
+                    scheduler=self.scheduler,
+                    scaler=self.scaler,
+                    stats=self.stats,
+                    epoch=self.config.epochs - 1,
+                    step=self.stats.current_step,
+                    is_best=False,
+                    extra_state=self._get_extra_checkpoint_state(),
+                )
+                logger.info(f"Training complete. Final model saved to {final_path}")
 
         return self.model
 
@@ -717,6 +830,62 @@ class BaseTrainer(ABC):
     def _get_extra_checkpoint_state(self) -> Dict[str, Any]:
         """Return extra state to save in checkpoint. Override in subclasses."""
         return {}
+
+    def _apply_gradient_checkpointing(self) -> None:
+        """Configure gradient checkpointing for memory-efficient training.
+        
+        Gradient checkpointing trades 20-30% more compute for 30-50% less memory.
+        It recomputes activations during backward pass instead of storing them.
+        """
+        if not self.config.use_gradient_checkpointing:
+            return
+        
+        if self.model is None:
+            logger.warning("Model not built yet, skipping gradient checkpointing configuration")
+            return
+        
+        if hasattr(self.model, 'enable_gradient_checkpointing'):
+            self.model.enable_gradient_checkpointing()
+            logger.info(
+                f"Gradient checkpointing enabled with ratio={self.config.gradient_checkpointing_ratio:.1f}"
+            )
+        else:
+            logger.warning("Model does not support gradient checkpointing")
+
+    def _apply_compile(self) -> None:
+        """Apply torch.compile() to the model if configured.
+
+        Records compilation time separately from training time.
+        Compilation happens lazily on first forward pass.
+        """
+        if not getattr(self.config, 'compile_model', False):
+            return
+
+        if torch is None:
+            logger.warning("torch.compile() requires PyTorch 2.0+, skipping")
+            return
+
+        compile_mode = getattr(self.config, 'compile_mode', 'reduce-overhead')
+        compile_backend = getattr(self.config, 'compile_backend', 'inductor')
+        compile_dynamic = getattr(self.config, 'compile_dynamic', True)
+
+        logger.info(f"Applying torch.compile(mode='{compile_mode}', backend='{compile_backend}')")
+        compile_start = time.time()
+
+        if hasattr(self.model, 'compile'):
+            try:
+                self.model.compile(
+                    mode=compile_mode,
+                    backend=compile_backend,
+                    dynamic=compile_dynamic,
+                )
+                compile_elapsed = time.time() - compile_start
+                logger.info(f"Model compilation configured in {compile_elapsed:.2f}s (lazy compilation)")
+            except Exception as e:
+                logger.warning(f"torch.compile() failed: {e}")
+                logger.warning("Training will continue without compilation")
+        else:
+            logger.warning("Model does not support torch.compile(), skipping")
 
     def _before_training(self) -> None:
         """Hook called before training starts."""

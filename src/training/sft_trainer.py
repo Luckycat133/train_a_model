@@ -1,15 +1,10 @@
-"""Supervised Fine-Tuning (SFT) trainer for instruction-following models.
-
-This module implements SFT training where the model learns to generate
-appropriate responses given instruction-input pairs. SFT is typically performed
-after pretraining to adapt the model for specific tasks or following instructions.
-"""
+"""Supervised Fine-Tuning (SFT) trainer using Accelerate."""
 
 from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 try:
@@ -28,32 +23,13 @@ except ImportError:
     def get_logger(name):
         return logging.getLogger(name)
 
-try:
-    from .base_trainer import BaseTrainer, TrainingConfig
-except ImportError:
-    from src.training.base_trainer import BaseTrainer, TrainingConfig
+from .base_trainer import BaseTrainer, TrainingConfig
 
 logger = get_logger("LingmaoMoyun.SFT")
 
 
 @dataclass
 class SFTConfig(TrainingConfig):
-    """Configuration for supervised fine-tuning.
-
-    Attributes:
-        response_loss_only: If True, only compute loss on response tokens,
-            ignoring the instruction/prompt tokens.
-        mask_prompt_tokens: If True, mask out loss on prompt tokens.
-        max_prompt_length: Maximum length for prompt tokens.
-        max_response_length: Maximum length for response tokens.
-        truncate_response: Truncate responses exceeding max_response_length.
-        train_file: Path to training data file.
-        test_file: Optional path to test/validation data file.
-        tokenizer_path: Path to tokenizer file.
-        ignore_token_id: Token ID to ignore in loss computation (e.g., padding).
-        sample_weights: Optional dict of sample weights for weighted loss.
-    """
-
     response_loss_only: bool = True
     mask_prompt_tokens: bool = True
     max_prompt_length: int = 512
@@ -69,14 +45,6 @@ class SFTConfig(TrainingConfig):
 
 
 class InstructionResponseDataset(Dataset):
-    """Dataset for instruction-response pairs used in SFT.
-
-    Supports various data formats:
-    - JSONL with 'instruction', 'input', 'output' fields
-    - JSONL with 'prompt', 'completion' fields
-    - JSONL with 'messages' field (chat format)
-    """
-
     def __init__(
         self,
         data_path: str,
@@ -102,29 +70,23 @@ class InstructionResponseDataset(Dataset):
         logger.info(f"Loaded {len(self.samples)} instruction-response samples")
 
     def _load_data(self, data_path: str) -> List[Dict[str, Any]]:
-        """Load and parse the dataset from file."""
         samples = []
-
         with open(data_path, "r", encoding="utf-8") as f:
             for line_num, line in enumerate(f):
                 line = line.strip()
                 if not line:
                     continue
-
                 try:
                     item = json.loads(line)
                 except json.JSONDecodeError:
                     logger.warning(f"Skipping malformed JSON at line {line_num + 1}")
                     continue
-
                 sample = self._parse_item(item)
                 if sample:
                     samples.append(sample)
-
         return samples
 
     def _parse_item(self, item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """Parse a single data item into instruction-response format."""
         if "messages" in item:
             return self._parse_chat_format(item)
         elif "instruction" in item and "output" in item:
@@ -136,46 +98,26 @@ class InstructionResponseDataset(Dataset):
             return None
 
     def _parse_instruction_format(self, item: Dict[str, Any]) -> Dict[str, Any]:
-        """Parse instruction-input-output format."""
         instruction = item.get("instruction", "")
         input_text = item.get("input", "")
         output = item.get("output", "")
-
         prompt = self.prompt_template.format(
             instruction=instruction,
             input=input_text if input_text else "N/A"
         )
-        response = output
-
-        return {
-            "prompt": prompt,
-            "response": response,
-            "prompt_ids": None,
-            "response_ids": None,
-        }
+        return {"prompt": prompt, "response": output, "prompt_ids": None, "response_ids": None}
 
     def _parse_completion_format(self, item: Dict[str, Any]) -> Dict[str, Any]:
-        """Parse prompt-completion format."""
-        prompt = item.get("prompt", "")
-        completion = item.get("completion", "")
-
-        return {
-            "prompt": prompt,
-            "response": completion,
-            "prompt_ids": None,
-            "response_ids": None,
-        }
+        return {"prompt": item.get("prompt", ""), "response": item.get("completion", ""),
+                "prompt_ids": None, "response_ids": None}
 
     def _parse_chat_format(self, item: Dict[str, Any]) -> Dict[str, Any]:
-        """Parse chat/messages format."""
         messages = item.get("messages", [])
-        prompt_parts = []
-        response = ""
+        prompt_parts, response = [], ""
 
-        for i, msg in enumerate(messages):
+        for msg in messages:
             role = msg.get("role", "user")
             content = msg.get("content", "")
-
             if role == "user":
                 prompt_parts.append(f"### Human: {content}\n\n")
             elif role == "assistant":
@@ -183,35 +125,17 @@ class InstructionResponseDataset(Dataset):
                     response = content
                 prompt_parts.append(f"### Assistant: {content}\n\n")
 
-        prompt = "".join(prompt_parts)
-
-        return {
-            "prompt": prompt,
-            "response": response,
-            "prompt_ids": None,
-            "response_ids": None,
-        }
+        return {"prompt": "".join(prompt_parts), "response": response,
+                "prompt_ids": None, "response_ids": None}
 
     def _tokenize_sample(self, sample: Dict[str, Any]) -> Dict[str, Any]:
-        """Tokenize a single sample."""
         if sample.get("prompt_ids") is not None:
             return sample
 
-        prompt_ids = self.tokenizer.encode(
-            sample["prompt"],
-            max_length=self.max_prompt_length,
-            truncation=True,
-        )
-
-        response_ids = self.tokenizer.encode(
-            sample["response"],
-            max_length=self.max_response_length,
-            truncation=self.truncate_response,
-        )
-
-        sample["prompt_ids"] = prompt_ids
-        sample["response_ids"] = response_ids
-
+        sample["prompt_ids"] = self.tokenizer.encode(
+            sample["prompt"], max_length=self.max_prompt_length, truncation=True)
+        sample["response_ids"] = self.tokenizer.encode(
+            sample["response"], max_length=self.max_response_length, truncation=self.truncate_response)
         return sample
 
     def __len__(self) -> int:
@@ -219,9 +143,7 @@ class InstructionResponseDataset(Dataset):
 
     def __getitem__(self, idx: int) -> Dict[str, Any]:
         sample = self._tokenize_sample(self.samples[idx])
-
-        prompt_ids = sample["prompt_ids"]
-        response_ids = sample["response_ids"]
+        prompt_ids, response_ids = sample["prompt_ids"], sample["response_ids"]
 
         input_ids = prompt_ids + response_ids
         labels = [self.ignore_token_id] * len(prompt_ids) + response_ids
@@ -239,18 +161,6 @@ class InstructionResponseDataset(Dataset):
 
 
 class SFTTrainer(BaseTrainer):
-    """Trainer for supervised fine-tuning on instruction-response pairs.
-
-    SFT trains the model to generate appropriate responses given instructions.
-    The model learns via standard next-token prediction on curated data.
-
-    Features:
-    - Instruction-following training
-    - Optional loss masking for prompt tokens (only train on response)
-    - Packed sequences for memory efficiency
-    - Mixed precision training
-    - Gradient accumulation
-    """
 
     def __init__(
         self,
@@ -258,7 +168,7 @@ class SFTTrainer(BaseTrainer):
         model: Optional[nn.Module] = None,
         train_loader: Optional[DataLoader] = None,
         eval_loader: Optional[DataLoader] = None,
-        device: Optional[torch.device] = None,
+        accelerator: Optional[Any] = None,
         tokenizer: Optional[Any] = None,
     ):
         if config is None:
@@ -269,22 +179,13 @@ class SFTTrainer(BaseTrainer):
             model=model,
             train_loader=train_loader,
             eval_loader=eval_loader,
-            device=device,
+            accelerator=accelerator,
         )
 
         self.tokenizer = tokenizer
-        self._setup_label_ids()
-
-    def _setup_label_ids(self) -> None:
-        """Setup the ignore token ID for loss computation."""
-        self.ignore_token_id = self.config.ignore_token_id
+        self.ignore_token_id = config.ignore_token_id
 
     def build_model(self) -> nn.Module:
-        """Build the model for SFT.
-
-        SFT typically uses the same model architecture as pretraining,
-        but may use a smaller learning rate and fewer epochs.
-        """
         from src.model import SimpleTransformer
 
         if self.model is not None:
@@ -321,17 +222,6 @@ class SFTTrainer(BaseTrainer):
         batch: Dict[str, torch.Tensor],
         **kwargs
     ) -> Tuple[torch.Tensor, Dict[str, float]]:
-        """Compute the SFT loss.
-
-        Computes cross-entropy loss on response tokens only (prompt tokens masked).
-        This is the standard approach for SFT where we only train on responses.
-
-        Args:
-            batch: Dictionary containing 'input_ids', 'labels', 'attention_mask'.
-
-        Returns:
-            Tuple of (loss tensor, metrics dictionary).
-        """
         input_ids = batch["input_ids"]
         labels = batch["labels"]
         attention_mask = batch.get("attention_mask")
@@ -356,34 +246,10 @@ class SFTTrainer(BaseTrainer):
                 accuracy = 0.0
                 num_tokens = 0
 
-        metrics = {
-            "loss": loss.item(),
-            "accuracy": accuracy,
-            "num_tokens": num_tokens,
-        }
-
-        return loss, metrics
-
-    def _prepare_batch(self, batch: Union[Dict[str, torch.Tensor], tuple]) -> Dict[str, torch.Tensor]:
-        """Prepare batch for SFT training."""
-        if isinstance(batch, dict):
-            result = {k: v.to(self.device) for k, v in batch.items()}
-            return result
-        elif isinstance(batch, (tuple, list)) and len(batch) >= 2:
-            input_ids, labels = batch[0], batch[1]
-            return {
-                "input_ids": input_ids.to(self.device),
-                "labels": labels.to(self.device),
-            }
-        else:
-            raise ValueError(f"Unknown batch type: {type(batch)}")
+        return loss, {"loss": loss.item(), "accuracy": accuracy, "num_tokens": num_tokens}
 
     def _get_extra_checkpoint_state(self) -> Dict[str, Any]:
-        """Return extra state for SFT checkpointing."""
-        return {
-            "trainer_type": "sft",
-            "ignore_token_id": self.ignore_token_id,
-        }
+        return {"trainer_type": "sft", "ignore_token_id": self.ignore_token_id}
 
     def create_dataloaders(
         self,
@@ -392,17 +258,6 @@ class SFTTrainer(BaseTrainer):
         batch_size: Optional[int] = None,
         num_workers: int = 4,
     ) -> Tuple[DataLoader, Optional[DataLoader]]:
-        """Create SFT training and evaluation dataloaders.
-
-        Args:
-            train_file: Path to training JSONL file with instruction-response pairs.
-            test_file: Optional path to test/validation data.
-            batch_size: Batch size (defaults to config value).
-            num_workers: Number of data loading workers.
-
-        Returns:
-            Tuple of (train_loader, eval_loader).
-        """
         if batch_size is None:
             batch_size = self.config.batch_size
 
@@ -435,7 +290,7 @@ class SFTTrainer(BaseTrainer):
             batch_size=batch_size,
             shuffle=True,
             num_workers=num_workers,
-            pin_memory=(self.device.type == "cuda"),
+            pin_memory=torch.cuda.is_available(),
             drop_last=True,
         )
 
@@ -457,11 +312,11 @@ class SFTTrainer(BaseTrainer):
                 batch_size=batch_size,
                 shuffle=False,
                 num_workers=num_workers,
-                pin_memory=(self.device.type == "cuda"),
+                pin_memory=torch.cuda.is_available(),
             )
-            logger.info(f"Created eval dataloader with {len(eval_dataset)} samples")
+            logger.info(f"Eval dataloader: {len(eval_dataset)} samples")
 
-        logger.info(f"Created train dataloader with {len(train_dataset)} samples")
+        logger.info(f"Train dataloader: {len(train_dataset)} samples")
         return train_loader, eval_loader
 
     @classmethod
@@ -469,26 +324,15 @@ class SFTTrainer(BaseTrainer):
         cls,
         pretrained_path: str,
         config: Optional[SFTConfig] = None,
-        device: Optional[torch.device] = None,
+        accelerator: Optional[Any] = None,
     ) -> "SFTTrainer":
-        """Create an SFT trainer from a pretrained checkpoint.
-
-        Args:
-            pretrained_path: Path to pretrained model checkpoint.
-            config: SFT configuration.
-            device: Target device.
-
-        Returns:
-            SFTTrainer with loaded pretrained weights.
-        """
         if config is None:
             config = SFTConfig()
 
-        trainer = cls(config=config, device=device)
-
+        trainer = cls(config=config, accelerator=accelerator)
         model = trainer.build_model()
 
-        checkpoint = torch.load(pretrained_path, map_location=device or torch.device("cpu"))
+        checkpoint = torch.load(pretrained_path, map_location="cpu")
         if "model_state_dict" in checkpoint:
             model.load_state_dict(checkpoint["model_state_dict"])
         else:
@@ -496,7 +340,6 @@ class SFTTrainer(BaseTrainer):
 
         trainer.model = model
         logger.info(f"Loaded pretrained model from {pretrained_path}")
-
         return trainer
 
     def generate_response(
@@ -507,18 +350,6 @@ class SFTTrainer(BaseTrainer):
         temperature: float = 0.7,
         top_p: float = 0.9,
     ) -> str:
-        """Generate a response for a given instruction (for evaluation).
-
-        Args:
-            instruction: The instruction/prompt.
-            input_text: Optional input context.
-            max_new_tokens: Maximum tokens to generate.
-            temperature: Sampling temperature.
-            top_p: Nucleus sampling parameter.
-
-        Returns:
-            Generated response string.
-        """
         if self.model is None or self.tokenizer is None:
             raise RuntimeError("Model and tokenizer must be initialized")
 
@@ -543,8 +374,8 @@ class SFTTrainer(BaseTrainer):
                 sorted_probs, sorted_indices = torch.sort(probs, descending=True)
                 cumulative_probs = torch.cumsum(sorted_probs, dim=-1)
                 sorted_indices_to_remove = cumulative_probs > top_p
-                sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1].clone()
-                sorted_indices_to_remove[..., 0] = 0
+                sorted_indices_to_remove[1:] = sorted_indices_to_remove[:-1].clone()
+                sorted_indices_to_remove[0] = 0
                 indices_to_remove = sorted_indices_to_remove.scatter(0, sorted_indices, sorted_indices_to_remove)
                 probs[indices_to_remove] = 0
                 probs = probs / probs.sum()
@@ -555,14 +386,13 @@ class SFTTrainer(BaseTrainer):
             generated.append(next_token.item())
 
             for _ in range(max_new_tokens - 1):
-                output_tensor = torch.tensor([generated[-self.config.context_length:]], dtype=torch.long, device=self.device)
+                output_tensor = torch.tensor([generated[-self.config.context_length:]],
+                                            dtype=torch.long, device=self.device)
                 outputs = self.model(output_tensor)
                 logits = outputs[0][-1] / temperature
-
                 probs = torch.softmax(logits, dim=-1)
                 next_token = torch.multinomial(probs, num_samples=1)
                 generated.append(next_token.item())
-
                 if next_token == self.tokenizer.eos_id:
                     break
 
@@ -588,32 +418,9 @@ def create_sft_trainer(
     weight_decay: float = 0.01,
     checkpoint_every: int = 1,
     response_loss_only: bool = True,
-    device: Optional[torch.device] = None,
+    accelerator: Optional[Any] = None,
     **kwargs
 ) -> SFTTrainer:
-    """Factory function to create a preconfigured SFT trainer.
-
-    Args:
-        train_file: Path to training JSONL file.
-        pretrained_path: Optional path to pretrained model checkpoint.
-        test_file: Optional path to test/validation data.
-        model_save_dir: Directory to save checkpoints.
-        tokenizer_path: Path to tokenizer file.
-        context_length: Maximum sequence length.
-        batch_size: Training batch size.
-        learning_rate: Learning rate (typically lower than pretraining).
-        epochs: Number of training epochs.
-        accumulation_steps: Gradient accumulation steps.
-        max_grad_norm: Gradient clipping norm.
-        weight_decay: Weight decay strength.
-        checkpoint_every: Save checkpoint every N epochs.
-        response_loss_only: Only compute loss on response tokens.
-        device: Target device.
-        **kwargs: Additional configuration options.
-
-    Returns:
-        Configured SFTTrainer instance.
-    """
     config = SFTConfig(
         train_file=train_file,
         test_file=test_file,
@@ -624,6 +431,7 @@ def create_sft_trainer(
         learning_rate=learning_rate,
         epochs=epochs,
         accumulation_steps=accumulation_steps,
+        gradient_accumulation_steps=accumulation_steps,
         max_grad_norm=max_grad_norm,
         weight_decay=weight_decay,
         checkpoint_every=checkpoint_every,
@@ -634,11 +442,11 @@ def create_sft_trainer(
         if hasattr(config, key):
             setattr(config, key, value)
 
-    trainer = SFTTrainer(config=config, device=device)
+    trainer = SFTTrainer(config=config, accelerator=accelerator)
 
     if pretrained_path:
         trainer.model = trainer.build_model()
-        checkpoint = torch.load(pretrained_path, map_location=device or torch.device("cpu"))
+        checkpoint = torch.load(pretrained_path, map_location="cpu")
         if "model_state_dict" in checkpoint:
             trainer.model.load_state_dict(checkpoint["model_state_dict"])
         else:
