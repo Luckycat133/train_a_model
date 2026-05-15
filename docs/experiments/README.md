@@ -162,6 +162,105 @@ model:
   use_weight_tying: true
 ```
 
+## 2025-2026最佳实践
+
+本节介绍2025-2026年大模型训练领域的最新优化技术和最佳实践，帮助您最大化训练效率。
+
+### 核心优化技术
+
+#### 1. HuggingFace Accelerate
+
+Accelerate是HuggingFace提供的分布式训练库，提供开箱即用的多GPU/TPU支持：
+
+```yaml
+# 启用Accelerate
+training:
+  use_accelerate: true
+  accelerator_config:
+    distributed_type: "multi_gpu"
+    mixed_precision: "bf16"
+    gradient_accumulation_steps: 4
+```
+
+**优势**：
+- 自动处理设备放置和分布式训练
+- 支持单GPU到数千GPU的线性扩展
+- 统一的混合精度接口
+- 与HuggingFace生态无缝集成
+
+#### 2. torch.compile
+
+PyTorch 2.0+的编译优化，将Python代码 JIT 编译为优化内核：
+
+```yaml
+training:
+  use_compile: true
+  compile_mode: "default"  # default | reduce-overhead | max-autotune
+```
+
+**优势**：
+- 内核融合减少内存访问
+- 动态形状支持
+- 最高可达1.5x加速
+
+#### 3. Gradient Checkpointing
+
+以计算换内存，适用于大模型训练：
+
+```yaml
+training:
+  use_gradient_checkpointing: true
+  checkpoint_every_n_layers: 1
+```
+
+**优势**：
+- 显存节省50-60%
+- 允许更大batch size
+- 轻微计算开销（约20-30%）
+
+### 性能对比表格
+
+| 优化技术 | 速度提升 | 显存节省 | 适用场景 |
+|---------|---------|---------|---------|
+| BF16 AMP | 1.5-2x | 40-50% | 全场景 |
+| torch.compile | 1.2-1.5x | - | 推理优化 |
+| Fused AdamW | 1.2-1.3x | - | 优化器更新 |
+| Gradient Checkpointing | 1x | 50-60% | 大模型 |
+| Accelerate | 线性扩展 | - | 多GPU训练 |
+
+### 快速配置示例
+
+```yaml
+# 高性能配置（推荐）
+training:
+  use_amp: true
+  amp_dtype: "bf16"
+  use_compile: true
+  use_gradient_checkpointing: true
+  use_fused_adamw: true
+
+# 快速训练配置
+training:
+  use_amp: true
+  amp_dtype: "fp16"
+  use_gradient_checkpointing: true
+
+# 多GPU配置
+training:
+  use_accelerate: true
+  accelerator_config:
+    distributed_type: "multi_gpu"
+    mixed_precision: "bf16"
+```
+
+### 推荐硬件配置
+
+| GPU配置 | 推荐优化 | 预期性能 |
+|---------|---------|---------|
+| RTX 3090/4090 | BF16 + 梯度检查点 | 基础性能 |
+| A100 40GB | 全优化开启 | 最佳性能 |
+| 多卡A100/H100 | Accelerate | 线性扩展 |
+
 ## 实验追踪
 
 ### 日志记录

@@ -1,5 +1,6 @@
 # Supervised Fine-Tuning (SFT) Configuration Template
 # Lingmao Moyun Project
+# 2025-2026 Best Practices Edition
 
 experiment_type: sft
 experiment_name: sft_baseline
@@ -7,73 +8,102 @@ seed: 42
 version: "0.8.5"
 
 # Model Architecture Configuration
+# Typically loaded from pretrain checkpoint
 model:
-  d_model: 512
-  nhead: 8
-  num_layers: 6
-  dim_feedforward: 2048
-  dropout: 0.05  # Lower dropout for fine-tuning
-  max_len: 512
-  vocab_size: 50000
+  # Core dimensions
+  d_model: 512              # Model hidden dimension (can be smaller for SFT)
+  nhead: 8                 # Number of attention heads
+  num_layers: 6           # Number of transformer layers (typically fewer than pretrain)
+  dim_feedforward: 2048     # FFN intermediate dimension
+  dropout: 0.05            # Lower dropout for fine-tuning (0.05-0.1)
+  max_len: 512              # Maximum sequence length
+  vocab_size: 50000        # Token vocabulary size
   
-  # Advanced Architecture Options
-  num_kv_heads: null  # null for MHA, set < nhead for GQA
-  head_dim: 64
-  use_weight_tying: true
-  use_sliding_window: false
-  swa_window_size: 512
+  # 2025-2026 Architecture Innovations
+  num_kv_heads: null        # Key-Value heads for GQA (null = MHA)
+  head_dim: 64              # Per-head dimension
+  use_weight_tying: true    # Tie input/output embeddings
+  
+  # Sliding window
+  use_sliding_window: false # Enable sliding window attention
+  swa_window_size: 512      # SWA window size
+  
+  # Multi-head Latent Attention
   use_mla: false
   mla_latent_dim: 128
   mla_num_latent_heads: 4
+  
+  # Mixture of Experts
   use_moe: false
   num_experts: 8
   top_k: 2
-  mode: modern  # modern or legacy
+  
+  # Mode selection
+  mode: modern               # modern or legacy
 
 # Training Hyperparameters
+# 2025-2026 Best Practice Settings for SFT
 training:
-  context_length: 256  # Shorter context for instruction following
-  batch_size: 16
-  learning_rate: 2.0e-5  # Lower LR for fine-tuning
-  epochs: 3
-  accumulation_steps: 2
-  max_grad_norm: 1.0
-  weight_decay: 0.01
-  checkpoint_every: 1
-  warmup_steps: 100  # Shorter warmup for fine-tuning
-  total_training_steps: 1000
-  min_lr_ratio: 0.1
-  label_smoothing: 0.05  # Light label smoothing
-  use_amp: true
-  use_compile: false
-  use_gradient_checkpointing: false  # Usually not needed for smaller SFT models
-  log_stats_interval: 50
+  # Data configuration
+  context_length: 256       # Shorter context for instruction following (256-512)
+  batch_size: 16            # Can use larger batch for SFT
+  learning_rate: 2.0e-5     # Lower LR for fine-tuning (typically 1e-5 to 5e-5)
+  epochs: 3                 # Fewer epochs for SFT
+  accumulation_steps: 2     # Gradient accumulation steps
+  
+  # Optimization
+  max_grad_norm: 1.0        # Gradient clipping norm
+  weight_decay: 0.01        # L2 regularization
+  
+  # Checkpointing
+  checkpoint_every: 1       # Save checkpoint every N epochs
+  
+  # Learning rate schedule (shorter warmup for fine-tuning)
+  warmup_steps: 100        # Shorter warmup for fine-tuning (10-20% of total)
+  total_training_steps: 1000  # Total training steps
+  min_lr_ratio: 0.1         # Minimum LR ratio
+  
+  # Regularization
+  label_smoothing: 0.05     # Light label smoothing (0.05-0.1)
+  
+  # 2025-2026 Performance Optimizations
+  use_amp: true             # Enable Automatic Mixed Precision (AMP)
+  amp_dtype: "bf16"         # AMP dtype: "bf16" (preferred)
+  
+  use_compile: false        # torch.compile (disable for debugging)
+  compile_mode: "default"
+  
+  use_gradient_checkpointing: false  # Usually not needed for SFT (smaller models)
+  
+  # Logging
+  log_stats_interval: 50    # More frequent logging for SFT
 
 # Dataset Configuration
 dataset:
-  stride: 256
+  # Data loading
+  stride: 256               # Stride for text chunking
   max_chunks: null
   memmap_threshold: 10000000
   batch_load_size: 100
   sample_array_init_size: 1000
   
-  # Data Files (customize these paths)
+  # Data files
   train_file: dataset/sft_train.jsonl
   val_file: dataset/sft_val.jsonl
   test_file: null
-  data_format: jsonl  # SFT typically uses structured format
+  data_format: jsonl         # SFT uses structured format (jsonl/chatml)
 
 # Memory and Performance Settings
 memory:
-  max_cache_size: 10000
+  max_cache_size: 10000    # Cache size for tokenization
   memory_map_suffix: ".dat"
-  gpu_memory_frac: 0.90
+  gpu_memory_frac: 0.90     # Higher memory usage allowed
   cpu_offload: false
-  use_fused_adamw: true
+  use_fused_adamw: true    # Use fused AdamW
 
 # Night Mode Power Saving
 night_mode:
-  enabled: false
+  enabled: false           # Enable power-saving mode
   start_hour: 21
   end_hour: 8
   batch_divisor: 2
@@ -85,6 +115,7 @@ tokenizer:
   path: tokenizer.json
   cache_maxsize: 16384
   vocab_size: 16000
+  
   special_tokens:
     - "<pad>"
     - "<unk>"
@@ -92,6 +123,8 @@ tokenizer:
     - "<eos>"
     - "<sep>"
     - "<cls>"
+  
+  # BPE options
   use_bpe: false
   bpe_vocab_size: 32768
   bpe_model_type: unigram
@@ -102,7 +135,7 @@ tokenizer:
 paths:
   log_dir: logs
   log_subdir: sft
-  model_save_dir: model_weights/sft
+  model_save_dir: model_weights/sft  # Separate directory for SFT checkpoints
   checkpoint_name_prefix: checkpoint_epoch
   best_model_name: best_model
   final_model_name_prefix: final_model
@@ -112,3 +145,4 @@ tags:
   - sft
   - fine-tuning
   - instruction-following
+  - 2025-2026

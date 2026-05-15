@@ -54,7 +54,8 @@ class TrainingConfig(BaseModel):
     label_smoothing: float = Field(default=0.1, ge=0.0, le=1.0, description="Label smoothing factor")
     use_amp: bool = Field(default=True, description="Enable automatic mixed precision")
     use_compile: bool = Field(default=False, description="Enable torch.compile")
-    use_gradient_checkpointing: bool = Field(default=True, description="Enable gradient checkpointing")
+    use_gradient_checkpointing: bool = Field(default=False, description="Enable gradient checkpointing")
+    gradient_checkpointing_ratio: float = Field(default=1.0, ge=0.0, le=1.0, description="Ratio of layers to apply checkpointing")
     log_stats_interval: int = Field(default=100, ge=1, le=10000, description="Stats logging interval")
 
 
@@ -163,6 +164,7 @@ class ExperimentConfig(BaseModel):
             "use_amp": self.training.use_amp,
             "use_compile": self.training.use_compile,
             "use_gradient_checkpointing": self.training.use_gradient_checkpointing,
+            "gradient_checkpointing_ratio": self.training.gradient_checkpointing_ratio,
             "log_stats_interval": self.training.log_stats_interval,
             "train_file": self.dataset.train_file,
             "test_file": self.dataset.test_file,

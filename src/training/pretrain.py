@@ -1,16 +1,9 @@
-"""Pretraining trainer for causal language modeling.
-
-This module implements the standard causal language modeling (CLM) pretraining
-paradigm, where the model learns to predict the next token given all previous
-tokens. This is the foundational pretraining objective used by GPT, LLaMA, and
-most modern autoregressive language models.
-"""
+"""Pretraining trainer for causal language modeling using Accelerate."""
 
 from __future__ import annotations
 
-import math
 import os
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, Optional, Tuple
 
 try:
     import torch
@@ -22,33 +15,13 @@ except Exception:
 
 try:
     from src.config import (
-        DEFAULT_ACCUMULATION_STEPS,
-        DEFAULT_BATCH_SIZE,
-        DEFAULT_CHECKPOINT_EVERY,
-        DEFAULT_CONTEXT_LENGTH,
-        DEFAULT_D_MODEL,
-        DEFAULT_DIM_FEEDFORWARD,
-        DEFAULT_DROPOUT,
-        DEFAULT_EPOCHS,
-        DEFAULT_LEARNING_RATE,
-        DEFAULT_MAX_GRAD_NORM,
-        DEFAULT_NHEAD,
-        DEFAULT_NUM_LAYERS,
-        DEFAULT_VOCAB_SIZE,
-        DEFAULT_WEIGHT_DECAY,
-        GRADIENT_CHECKPOINTING_CHUNKS,
-        LABEL_SMOOTHING,
-        LOG_DIR,
-        LOG_SUBDIR,
-        MIN_LR_RATIO,
-        MODEL_SAVE_DIR,
-        NUM_KV_HEADS,
-        SWA_WINDOW_SIZE,
-        USE_GRADIENT_CHECKPOINTING,
-        USE_SLIDING_WINDOW,
-        USE_WEIGHT_TYING,
-        WARMUP_STEPS,
-        TOTAL_TRAINING_STEPS,
+        DEFAULT_ACCUMULATION_STEPS, DEFAULT_BATCH_SIZE, DEFAULT_CHECKPOINT_EVERY,
+        DEFAULT_CONTEXT_LENGTH, DEFAULT_D_MODEL, DEFAULT_DIM_FEEDFORWARD,
+        DEFAULT_DROPOUT, DEFAULT_EPOCHS, DEFAULT_LEARNING_RATE, DEFAULT_MAX_GRAD_NORM,
+        DEFAULT_NHEAD, DEFAULT_NUM_LAYERS, DEFAULT_VOCAB_SIZE, DEFAULT_WEIGHT_DECAY,
+        LABEL_SMOOTHING, MIN_LR_RATIO, MODEL_SAVE_DIR, NUM_KV_HEADS,
+        SWA_WINDOW_SIZE, USE_GRADIENT_CHECKPOINTING, USE_SLIDING_WINDOW,
+        USE_WEIGHT_TYING, WARMUP_STEPS, TOTAL_TRAINING_STEPS,
     )
 except ImportError:
     DEFAULT_ACCUMULATION_STEPS = 4
@@ -65,10 +38,7 @@ except ImportError:
     DEFAULT_NUM_LAYERS = 12
     DEFAULT_VOCAB_SIZE = 30000
     DEFAULT_WEIGHT_DECAY = 0.01
-    GRADIENT_CHECKPOINTING_CHUNKS = 1
     LABEL_SMOOTHING = 0.1
-    LOG_DIR = "logs"
-    LOG_SUBDIR = "train_model"
     MIN_LR_RATIO = 0.1
     MODEL_SAVE_DIR = "model_weights"
     NUM_KV_HEADS = None
@@ -99,38 +69,25 @@ except ImportError:
     class SimpleTransformer:
         pass
 
-from .base_trainer import BaseTrainer, TrainingConfig, TrainingStats
+from .base_trainer import BaseTrainer, TrainingConfig
 
 logger = get_logger("LingmaoMoyun.Pretrain")
 
 
 class CausalLMTrainingConfig(TrainingConfig):
-    """Configuration specific to causal language model pretraining."""
-
     tokenizer_path: str = "tokenizer.json"
     train_file: Optional[str] = None
     test_file: Optional[str] = None
     stride: int = DEFAULT_CONTEXT_LENGTH // 2
     max_chunks: Optional[int] = None
-    use_compile: bool = False
+    compile_model: bool = False
+    compile_mode: str = "reduce-overhead"
+    compile_backend: str = "inductor"
+    compile_dynamic: bool = True
     label_smoothing: float = LABEL_SMOOTHING
 
 
 class CausalLanguageModelTrainer(BaseTrainer):
-    """Trainer for causal language modeling pretraining.
-
-    Implements standard next-token prediction training where the model learns
-    to predict each token given all preceding tokens in the sequence.
-
-    Features:
-    - Causal (unidirectional) attention mask
-    - Next-token prediction loss
-    - Optional label smoothing
-    - Gradient accumulation for effective larger batch sizes
-    - Mixed precision training (BF16/FP16)
-    - Gradient checkpointing for memory efficiency
-    - Learning rate warmup + cosine decay schedule
-    """
 
     def __init__(
         self,
@@ -138,7 +95,7 @@ class CausalLanguageModelTrainer(BaseTrainer):
         model: Optional[nn.Module] = None,
         train_loader: Optional[DataLoader] = None,
         eval_loader: Optional[DataLoader] = None,
-        device: Optional[torch.device] = None,
+        accelerator: Optional[Any] = None,
         tokenizer: Optional[Any] = None,
     ):
         if config is None:
@@ -149,7 +106,7 @@ class CausalLanguageModelTrainer(BaseTrainer):
             model=model,
             train_loader=train_loader,
             eval_loader=eval_loader,
-            device=device,
+            accelerator=accelerator,
         )
 
         self.tokenizer = tokenizer
@@ -157,23 +114,16 @@ class CausalLanguageModelTrainer(BaseTrainer):
 
     @property
     def vocab_size(self) -> int:
-        """Get the vocabulary size."""
         return self._vocab_size
 
     @vocab_size.setter
     def vocab_size(self, value: int) -> None:
-        """Set the vocabulary size and rebuild model if needed."""
         if value != self._vocab_size:
             self._vocab_size = value
             if self.model is not None:
                 logger.info(f"Vocab size changed to {value}, model will be rebuilt")
 
     def build_model(self) -> nn.Module:
-        """Build the causal language model architecture.
-
-        Creates a SimpleTransformer model with modern architecture features
-        (RoPE, SwiGLU, optional GQA/MoE) configured via the training config.
-        """
         if self.model is not None:
             return self.model
 
@@ -191,7 +141,7 @@ class CausalLanguageModelTrainer(BaseTrainer):
                 self._vocab_size = len(self.tokenizer.token_to_id)
                 logger.info(f"Loaded tokenizer with vocab size: {self._vocab_size}")
             except Exception as e:
-                logger.warning(f"Failed to load tokenizer: {e}, using default vocab size")
+                logger.warning(f"Failed to load tokenizer: {e}")
 
         model = SimpleTransformer(
             vocab_size=self._vocab_size,
@@ -212,13 +162,12 @@ class CausalLanguageModelTrainer(BaseTrainer):
             window_size=cfg.window_size,
         )
 
-        num_params = sum(p.num_el() for p in model.parameters())
-        logger.info(f"Model built with {num_params:,} parameters")
-        logger.info(f"Model architecture: {cfg.mode} mode")
+        num_params = sum(p.numel() for p in model.parameters())
+        logger.info(f"Model built with {num_params:,} parameters | Mode: {cfg.mode}")
         if cfg.num_kv_heads and cfg.num_kv_heads < cfg.nhead:
-            logger.info(f"  - GQA: {cfg.nhead} Q heads, {cfg.num_kv_heads} KV heads")
+            logger.info(f"  GQA: {cfg.nhead} Q heads, {cfg.num_kv_heads} KV heads")
         if cfg.use_moe:
-            logger.info(f"  - MoE: {cfg.num_experts} experts, top-{cfg.top_k} routing")
+            logger.info(f"  MoE: {cfg.num_experts} experts, top-{cfg.top_k}")
 
         return model
 
@@ -227,17 +176,6 @@ class CausalLanguageModelTrainer(BaseTrainer):
         batch: Dict[str, torch.Tensor],
         **kwargs
     ) -> Tuple[torch.Tensor, Dict[str, float]]:
-        """Compute the causal language modeling loss.
-
-        The loss is computed as the cross-entropy between predicted logits
-        and target tokens, with optional label smoothing.
-
-        Args:
-            batch: Dictionary containing 'input_ids' and 'target_ids'.
-
-        Returns:
-            Tuple of (loss tensor, metrics dictionary).
-        """
         input_ids = batch["input_ids"]
         target_ids = batch["target_ids"]
 
@@ -256,19 +194,10 @@ class CausalLanguageModelTrainer(BaseTrainer):
             preds = logits_flat.argmax(dim=-1)
             accuracy = (preds == targets_flat).float().mean().item()
 
-        metrics = {
-            "loss": loss.item(),
-            "accuracy": accuracy,
-        }
-
-        return loss, metrics
+        return loss, {"loss": loss.item(), "accuracy": accuracy}
 
     def _get_extra_checkpoint_state(self) -> Dict[str, Any]:
-        """Return extra state for checkpointing."""
-        return {
-            "vocab_size": self._vocab_size,
-            "trainer_type": "causal_lm",
-        }
+        return {"vocab_size": self._vocab_size, "trainer_type": "causal_lm"}
 
     def create_dataloaders(
         self,
@@ -277,17 +206,6 @@ class CausalLanguageModelTrainer(BaseTrainer):
         batch_size: Optional[int] = None,
         num_workers: int = 4,
     ) -> Tuple[DataLoader, Optional[DataLoader]]:
-        """Create training and evaluation dataloaders.
-
-        Args:
-            train_file: Path to training data (JSONL format).
-            test_file: Optional path to test/validation data.
-            batch_size: Batch size (defaults to config value).
-            num_workers: Number of data loading workers.
-
-        Returns:
-            Tuple of (train_loader, eval_loader).
-        """
         if batch_size is None:
             batch_size = self.config.batch_size
 
@@ -304,7 +222,7 @@ class CausalLanguageModelTrainer(BaseTrainer):
             batch_size=batch_size,
             shuffle=True,
             num_workers=num_workers,
-            pin_memory=(self.device.type == "cuda"),
+            pin_memory=torch.cuda.is_available(),
             drop_last=True,
         )
 
@@ -322,28 +240,19 @@ class CausalLanguageModelTrainer(BaseTrainer):
                 batch_size=batch_size,
                 shuffle=False,
                 num_workers=num_workers,
-                pin_memory=(self.device.type == "cuda"),
+                pin_memory=torch.cuda.is_available(),
             )
-            logger.info(f"Created eval dataloader with {len(eval_dataset)} samples")
+            logger.info(f"Eval dataloader: {len(eval_dataset)} samples")
 
-        logger.info(f"Created train dataloader with {len(train_dataset)} samples")
+        logger.info(f"Train dataloader: {len(train_dataset)} samples")
         return train_loader, eval_loader
 
     @classmethod
     def from_config_file(
         cls,
         config_path: str,
-        device: Optional[torch.device] = None,
+        accelerator: Optional[Any] = None,
     ) -> "CausalLanguageModelTrainer":
-        """Create a trainer from a YAML configuration file.
-
-        Args:
-            config_path: Path to YAML config file.
-            device: Target device for training.
-
-        Returns:
-            Configured CausalLanguageModelTrainer instance.
-        """
         import yaml
 
         with open(config_path, 'r') as f:
@@ -353,10 +262,9 @@ class CausalLanguageModelTrainer(BaseTrainer):
         training_config = config_dict.get("training", {})
 
         full_config = {**model_config, **training_config}
-
         config = CausalLMTrainingConfig.from_dict(full_config)
 
-        trainer = cls(config=config, device=device)
+        trainer = cls(config=config, accelerator=accelerator)
 
         if training_config.get("train_file"):
             train_loader, eval_loader = trainer.create_dataloaders(
@@ -388,7 +296,6 @@ def create_pretrain_trainer(
     weight_decay: float = DEFAULT_WEIGHT_DECAY,
     checkpoint_every: int = DEFAULT_CHECKPOINT_EVERY,
     use_amp: bool = True,
-    device: Optional[torch.device] = None,
     mode: str = "modern",
     num_kv_heads: Optional[int] = NUM_KV_HEADS,
     use_moe: bool = False,
@@ -398,13 +305,9 @@ def create_pretrain_trainer(
     use_weight_tying: bool = USE_WEIGHT_TYING,
     use_sliding_window: bool = USE_SLIDING_WINDOW,
     window_size: int = SWA_WINDOW_SIZE,
+    accelerator: Optional[Any] = None,
     **kwargs
 ) -> CausalLanguageModelTrainer:
-    """Factory function to create a preconfigured pretraining trainer.
-
-    This is a convenience function that mirrors the original train_model()
-    interface for easy migration from the old training system.
-    """
     config = CausalLMTrainingConfig(
         train_file=train_file,
         test_file=test_file,
@@ -415,6 +318,7 @@ def create_pretrain_trainer(
         learning_rate=learning_rate,
         epochs=epochs,
         accumulation_steps=accumulation_steps,
+        gradient_accumulation_steps=accumulation_steps,
         max_grad_norm=max_grad_norm,
         weight_decay=weight_decay,
         checkpoint_every=checkpoint_every,
@@ -435,10 +339,7 @@ def create_pretrain_trainer(
         window_size=window_size,
     )
 
-    trainer = CausalLanguageModelTrainer(
-        config=config,
-        device=device,
-    )
+    trainer = CausalLanguageModelTrainer(config=config, accelerator=accelerator)
 
     train_loader, eval_loader = trainer.create_dataloaders(
         train_file=train_file,
