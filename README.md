@@ -109,6 +109,64 @@ lingmao_moyun/
 
 ---
 
+## 📊 训练数据
+
+灵猫墨韵项目使用中国古典文献作为训练数据，支持多种数据格式和来源。
+
+### 数据概览
+
+| 数据类型 | 描述 | 文件格式 |
+|---------|------|----------|
+| **古典文献** | 论语、道德经、庄子等先秦典籍 | JSONL |
+| **诗词歌赋** | 唐诗、宋词等经典诗词 | JSONL |
+| **古典术语** | 专业术语词典 | JSONL/TXT |
+
+### 数据获取
+
+```bash
+# 使用内置脚本下载数据
+python processors/download_poetry.py
+
+# 一键数据准备（下载→清洗→转换→合并）
+./scripts/data_pipeline.sh --full
+```
+
+### 数据文档
+
+- [📚 数据概览](docs/data/README.md) - 数据目录结构和概览
+- [🚀 数据获取指南](docs/data/getting_started.md) - 详细的数据获取与预处理流程
+- [📋 数据格式说明](docs/data/formats.md) - JSONL格式规范和字段说明
+- [📊 DATASET.md](DATASET.md) - 完整数据集文档
+
+### 快速开始：数据准备
+
+```bash
+# 1. 创建数据目录
+mkdir -p dataset/raw dataset/processed dataset/tokenized
+
+# 2. 下载原始数据
+./scripts/data_pipeline.sh --download --type poetry --type classical
+
+# 3. 预处理数据
+./scripts/data_pipeline.sh --process
+
+# 4. 合并数据
+cat dataset/processed/poetry.jsonl dataset/processed/classical.jsonl \
+    > dataset/processed/merged.jsonl
+
+# 5. 准备分词器
+python -m src.run --prepare
+```
+
+### 数据格式示例
+
+```jsonl
+{"book": "论语", "chapter": "学而", "paragraph_index": 1, "content": "子曰：学而时习之，不亦说乎？", "difficulty": 0.4, "tags": ["论语", "儒家"]}
+{"book": "唐诗三百首", "chapter": "五言绝句", "paragraph_index": 1, "title": "静夜思", "author": "李白", "dynasty": "唐", "content": "床前明月光，疑是地上霜。", "difficulty": 0.2, "tags": ["五言绝句", "思乡"]}
+```
+
+---
+
 ## 🚀 Quick Start
 
 ```bash

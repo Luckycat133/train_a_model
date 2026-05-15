@@ -50,6 +50,42 @@ from src.data.packed_dataset import (
     DynamicPackingDataset,
 )
 
+from src.data.downloaders import (
+    BaseDownloader,
+    WikiDownloader,
+    PoetryDownloader,
+    CustomDownloader,
+    create_downloader,
+)
+
+from src.data.cleaners import (
+    TextCleaner,
+    DataCleaner,
+    QualityFilter,
+    CleaningPipeline,
+)
+
+from src.data.formatters import (
+    JSONLFormatter,
+    SentenceFormatter,
+    DialogueFormatter,
+    create_formatter,
+)
+
+from src.data.analyzers import (
+    DataAnalyzer,
+    VocabularyAnalyzer,
+)
+
+from src.data.augmentors import (
+    TextAugmentor,
+    SynonymReplacer,
+    RandomInserter,
+    RandomDeleter,
+    SwapAugmentor,
+    BackTranslationAugmentor,
+)
+
 __all__ = [
     # 基础接口
     "BaseDataset",
@@ -68,4 +104,30 @@ __all__ = [
     # 打包数据
     "PackedDataset",
     "DynamicPackingDataset",
+    # 数据下载器
+    "BaseDownloader",
+    "WikiDownloader",
+    "PoetryDownloader",
+    "CustomDownloader",
+    "create_downloader",
+    # 数据清洗器
+    "TextCleaner",
+    "DataCleaner",
+    "QualityFilter",
+    "CleaningPipeline",
+    # 数据格式化器
+    "JSONLFormatter",
+    "SentenceFormatter",
+    "DialogueFormatter",
+    "create_formatter",
+    # 数据分析器
+    "DataAnalyzer",
+    "VocabularyAnalyzer",
+    # 数据增强器
+    "TextAugmentor",
+    "SynonymReplacer",
+    "RandomInserter",
+    "RandomDeleter",
+    "SwapAugmentor",
+    "BackTranslationAugmentor",
 ]
