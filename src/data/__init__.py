@@ -50,6 +50,18 @@ from src.data.packed_dataset import (
     DynamicPackingDataset,
 )
 
+from src.data_config import (
+    DatasetConfig,
+    DataFormat,
+    ValidationRule,
+    PreprocessingStep,
+    DatasetRegistry,
+    DatasetInfo,
+    DatasetLoader,
+    StreamingDataLoader,
+    DataMixer,
+)
+
 __all__ = [
     # 基础接口
     "BaseDataset",
@@ -68,4 +80,14 @@ __all__ = [
     # 打包数据
     "PackedDataset",
     "DynamicPackingDataset",
+    # 数据配置系统
+    "DatasetConfig",
+    "DataFormat",
+    "ValidationRule",
+    "PreprocessingStep",
+    "DatasetRegistry",
+    "DatasetInfo",
+    "DatasetLoader",
+    "StreamingDataLoader",
+    "DataMixer",
 ]
