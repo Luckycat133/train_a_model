@@ -7,7 +7,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from src.config import LOG_DIR, LOG_SUBDIR, LOG_FORMAT_CONSOLE, LOG_FORMAT_FILE
+try:
+    from src.config import LOG_DIR, LOG_SUBDIR, LOG_FORMAT_CONSOLE, LOG_FORMAT_FILE
+except ImportError:
+    LOG_DIR = "logs"
+    LOG_SUBDIR = "train_model"
+    LOG_FORMAT_CONSOLE = "%(levelname)s: %(message)s"
+    LOG_FORMAT_FILE = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 
 # ─── Module-level logger (lazily initialized) ──────────────────────────────────
 _loggers: dict[str, logging.Logger] = {}

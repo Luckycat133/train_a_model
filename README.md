@@ -13,26 +13,40 @@
 ## 📁 Project Structure
 
 ```
-train_a_model/
-├── src/                      # Core modules (refactored)
-│   ├── __init__.py           # Package entry
-│   ├── config.py              # All configuration constants
-│   ├── dataset.py             # LMDataset implementation
-│   ├── logger.py             # Logging utilities
-│   ├── model.py              # SimpleTransformer, PositionalEncoding
-│   ├── trainer.py            # Training loop, evaluation, checkpoints
-│   ├── run.py                # CLI entry point
-│   └── utils.py              # General utilities
-├── dataset/                  # Training data
-├── processors/               # Data processors
-├── model_weights/           # Saved checkpoints
-├── test/                    # Test suite
-├── config/                  # YAML configs
-├── docs/                    # Documentation
-├── train_model.py           # Legacy entry (uses src/)
-├── generate.py              # Text generation
-├── tokenizer.py             # ClassicalTokenizer
-├── cleanup.py               # Dataset cleanup
+lingmao_moyun/
+├── src/                      # Core modules
+│   ├── config/              # Configuration system (NEW)
+│   │   ├── schema.py         # Pydantic configuration schemas
+│   │   └── validator.py      # Configuration validation
+│   ├── config.py            # Configuration constants
+│   ├── dataset.py           # LMDataset implementation
+│   ├── logger.py            # Logging utilities
+│   ├── model.py             # SimpleTransformer
+│   ├── trainer.py           # Training loop & evaluation
+│   ├── run.py               # CLI entry point
+│   └── utils.py             # General utilities
+├── config/                   # Configuration templates (NEW)
+│   ├── pretrain.yaml        # Pretraining template
+│   ├── sft.yaml             # SFT template
+│   ├── rl.yaml              # RL template
+│   └── default.yaml         # Default configuration
+├── examples/                 # Training examples (NEW)
+│   ├── pretrain_example.py  # Pretraining runner
+│   ├── sft_example.py       # SFT training runner
+│   └── eval_example.py      # Model evaluation
+├── docs/
+│   ├── experiments/         # Experiment platform docs (NEW)
+│   │   ├── README.md        # Usage guide
+│   │   └── quickstart.md    # Quick start
+│   ├── cn/                  # Chinese documentation
+│   └── en/                  # English documentation
+├── dataset/                 # Training data
+├── processors/             # Data processors
+├── model_weights/          # Saved checkpoints
+├── test/                   # Test suite
+├── train_model.py          # Legacy entry (uses src/)
+├── generate.py             # Text generation
+├── tokenizer.py            # ClassicalTokenizer
 └── requirements.txt
 ```
 
@@ -90,10 +104,53 @@ Edit `config/config.yaml` or create your own. Key settings:
 
 ---
 
+## 🔬 Experiment Platform
+
+The project includes a comprehensive experiment platform for training and evaluation:
+
+### Configuration System
+
+- **Schema Validation**: [src/config/schema.py](src/config/schema.py) - Pydantic-based configuration schemas
+- **Validator**: [src/config/validator.py](src/config/validator.py) - Configuration validation and templates
+
+### Training Modes
+
+| Mode | Config | Description |
+|------|--------|-------------|
+| Pretraining | [config/pretrain.yaml](config/pretrain.yaml) | Base model pretraining |
+| SFT | [config/sft.yaml](config/sft.yaml) | Supervised fine-tuning |
+| RL | [config/rl.yaml](config/rl.yaml) | Reinforcement learning |
+
+### Examples
+
+- [examples/pretrain_example.py](examples/pretrain_example.py) - Pretraining runner
+- [examples/sft_example.py](examples/sft_example.py) - SFT training runner
+- [examples/eval_example.py](examples/eval_example.py) - Model evaluation
+
+### Documentation
+
+- [docs/experiments/README.md](docs/experiments/README.md) - Complete usage guide
+- [docs/experiments/quickstart.md](docs/experiments/quickstart.md) - Quick start tutorial
+
+Quick usage:
+```bash
+# Validate config
+python -m src.config.validator config/pretrain.yaml
+
+# Run pretraining
+python examples/pretrain_example.py --config config/pretrain.yaml
+
+# Run evaluation
+python examples/eval_example.py --model model_weights/best_model.pt --test-file dataset/test.txt
+```
+
+---
+
 ## 📚 Documentation
 
 - [English](docs/en/)
 - [中文](docs/cn/)
+- [Experiments](docs/experiments/)
 
 ---
 

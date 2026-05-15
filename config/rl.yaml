@@ -1,0 +1,135 @@
+# Reinforcement Learning (RL) Configuration Template
+# Lingmao Moyun Project
+
+experiment_type: rl
+experiment_name: rl_baseline
+seed: 42
+version: "0.8.5"
+
+# Model Architecture Configuration
+model:
+  d_model: 512
+  nhead: 8
+  num_layers: 6
+  dim_feedforward: 2048
+  dropout: 0.0  # No dropout for RL
+  max_len: 512
+  vocab_size: 50000
+  
+  # Advanced Architecture Options
+  num_kv_heads: null  # null for MHA, set < nhead for GQA
+  head_dim: 64
+  use_weight_tying: true
+  use_sliding_window: false
+  swa_window_size: 512
+  use_mla: false
+  mla_latent_dim: 128
+  mla_num_latent_heads: 4
+  use_moe: false
+  num_experts: 8
+  top_k: 2
+  mode: modern  # modern or legacy
+
+# Training Hyperparameters
+training:
+  context_length: 256
+  batch_size: 4  # Smaller batch for RL
+  learning_rate: 1.0e-5  # Lower LR for RL stability
+  epochs: 10
+  accumulation_steps: 8  # Higher accumulation for effective larger batch
+  max_grad_norm: 1.0
+  weight_decay: 0.01
+  checkpoint_every: 1
+  warmup_steps: 100
+  total_training_steps: 5000
+  min_lr_ratio: 0.1
+  label_smoothing: 0.0
+  use_amp: true
+  use_compile: false
+  use_gradient_checkpointing: true
+  log_stats_interval: 50
+
+# Dataset Configuration
+dataset:
+  stride: 256
+  max_chunks: null
+  memmap_threshold: 10000000
+  batch_load_size: 100
+  sample_array_init_size: 1000
+  
+  # Data Files (customize these paths)
+  train_file: dataset/rl_train.jsonl
+  val_file: dataset/rl_val.jsonl
+  test_file: null
+  data_format: jsonl
+
+# RL-Specific Configuration
+rl:
+  # Model paths
+  reward_model_path: model_weights/reward_model.pt
+  reference_model_path: model_weights/pretrain/final_model.pt  # SFT model as reference
+  
+  # Reward and KL settings
+  reward_scale: 1.0
+  kl_coef: 0.1  # KL penalty coefficient
+  
+  # PPO/GAE settings
+  gamma: 0.99  # Discount factor
+  lam: 0.95  # GAE lambda
+  clip_range: 0.2  # PPO clip range
+  ppo_epochs: 4  # Number of PPO update epochs
+  mini_batch_size: 4
+  
+  # Loss coefficients
+  entropy_coef: 0.01  # Entropy bonus for exploration
+  value_loss_coef: 0.5  # Value function loss weight
+
+# Memory and Performance Settings
+memory:
+  max_cache_size: 10000
+  memory_map_suffix: ".dat"
+  gpu_memory_frac: 0.80  # More memory for RL buffers
+  cpu_offload: false
+  use_fused_adamw: true
+
+# Night Mode Power Saving
+night_mode:
+  enabled: false
+  start_hour: 21
+  end_hour: 8
+  batch_divisor: 2
+  gpu_memory_frac: 0.40
+  cpu_cores_divisor: 2
+
+# Tokenizer Configuration
+tokenizer:
+  path: tokenizer.json
+  cache_maxsize: 16384
+  vocab_size: 16000
+  special_tokens:
+    - "<pad>"
+    - "<unk>"
+    - "<bos>"
+    - "<eos>"
+    - "<sep>"
+    - "<cls>"
+  use_bpe: false
+  bpe_vocab_size: 32768
+  bpe_model_type: unigram
+  char_coverage: 1.0
+  byte_fallback: false
+
+# Paths Configuration
+paths:
+  log_dir: logs
+  log_subdir: rl
+  model_save_dir: model_weights/rl
+  checkpoint_name_prefix: checkpoint_epoch
+  best_model_name: best_model
+  final_model_name_prefix: final_model
+
+# Tags for experiment tracking
+tags:
+  - rl
+  - ppo
+  - reinforcement-learning
