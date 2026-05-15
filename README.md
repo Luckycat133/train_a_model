@@ -67,56 +67,6 @@ training:
 
 ---
 
-## 📥 数据系统
-
-灵猫墨韵项目提供完整的数据处理管道，支持中文诗词、古文典籍等多种数据源。
-
-### 数据获取
-
-```bash
-# 下载中文诗词数据（全唐诗、宋词、楚辞等）
-python processors/download_poetry.py
-
-# 数据保存位置：collection/chinese-poetry/
-```
-
-### 支持的数据源
-
-| 数据源 | 规模 | 格式 | 用途 |
-|--------|------|------|------|
-| 全唐诗 | ~50,000首 | JSON/JSONL | 预训练 |
-| 全宋词 | ~20,000首 | JSON/JSONL | 预训练 |
-| 楚辞 | ~67首 | JSON/JSONL | 预训练 |
-| 古文典籍 | 多部 | JSON/JSONL | 预训练 |
-| 对话数据 | 自定义 | JSONL | SFT微调 |
-
-### 快速开始
-
-```python
-from src.data import PretrainDataset, SFTDataset
-
-# 预训练数据加载
-pretrain_ds = PretrainDataset(
-    data_paths="collection/chinese-poetry/poetry.jsonl",
-    context_length=512
-)
-
-# SFT对话数据加载
-sft_ds = SFTDataset(
-    data_paths="dataset/sft.jsonl",
-    dialogue_format="sharegpt"
-)
-```
-
-### 数据文档
-
-- [数据系统概览](docs/data/README.md) - 完整数据架构说明
-- [数据获取指南](docs/data/acquisition.md) - 下载和导入数据
-- [数据处理指南](docs/data/processing.md) - 清洗、过滤、转换
-- [数据配置指南](docs/data/configuration.md) - 数据集配置方法
-
----
-
 ## 📁 Project Structure
 
 ```
@@ -126,33 +76,35 @@ lingmao_moyun/
 │   │   ├── schema.py         # Pydantic configuration schemas
 │   │   └── validator.py      # Configuration validation
 │   ├── config.py            # Configuration constants
-│   ├── data/                # Data pipeline (NEW)
-│   │   ├── base_dataset.py   # Base dataset classes
-│   │   ├── pretrain_dataset.py # Pretraining datasets
-│   │   └── sft_dataset.py    # SFT datasets
 │   ├── dataset.py           # LMDataset implementation
 │   ├── logger.py            # Logging utilities
 │   ├── model.py             # SimpleTransformer
 │   ├── trainer.py           # Training loop & evaluation
 │   ├── run.py               # CLI entry point
 │   └── utils.py             # General utilities
+├── config/                   # Configuration templates (NEW)
+│   ├── pretrain.yaml        # Pretraining template
+│   ├── sft.yaml             # SFT template
+│   ├── rl.yaml              # RL template
+│   └── default.yaml         # Default configuration
+├── examples/                 # Training examples (NEW)
+│   ├── pretrain_example.py  # Pretraining runner
+│   ├── sft_example.py       # SFT training runner
+│   └── eval_example.py      # Model evaluation
 ├── docs/
-│   ├── data/                # Data documentation (NEW)
-│   │   ├── README.md         # Data system overview
-│   │   ├── acquisition.md    # Data acquisition guide
-│   │   ├── processing.md     # Data processing guide
-│   │   └── configuration.md  # Dataset configuration
-│   ├── experiments/         # Experiment platform docs
+│   ├── experiments/         # Experiment platform docs (NEW)
+│   │   ├── README.md        # Usage guide
+│   │   └── quickstart.md    # Quick start
 │   ├── cn/                  # Chinese documentation
 │   └── en/                  # English documentation
-├── processors/              # Data processors
-│   ├── download_poetry.py   # Poetry downloader
-│   └── processor.py         # Data processing tools
-├── dataset/                 # Training data directory
-├── config/                  # Configuration templates
-├── examples/                # Training examples
+├── dataset/                 # Training data
+├── processors/             # Data processors
 ├── model_weights/          # Saved checkpoints
-└── test/                   # Test suite
+├── test/                   # Test suite
+├── train_model.py          # Legacy entry (uses src/)
+├── generate.py             # Text generation
+├── tokenizer.py            # ClassicalTokenizer
+└── requirements.txt
 ```
 
 ---
@@ -253,7 +205,6 @@ python examples/eval_example.py --model model_weights/best_model.pt --test-file 
 
 ## 📚 Documentation
 
-- [数据文档](docs/data/) - 数据系统完整文档
 - [English](docs/en/)
 - [中文](docs/cn/)
 - [Experiments](docs/experiments/)
