@@ -1,12 +1,123 @@
 # 🏮 灵猫墨韵 | Lingmao Moyun
 
-**A personal journey into training large language models from scratch** — starting with Chinese classical poetry.
+**基于古典中文训练的语言模型实验平台**
 
-> _Dataset processing, tokenization, training, and evaluation — all open source. Let's discuss and grow together!_
+> _探索古典中文的深度学习之路，支持现代LLM架构和2025-2026年最佳实践_
 
 [![Python](https://img.shields.io/badge/Python-3.9+-blue.svg)](https://www.python.org/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-red.svg)](https://pytorch.org/)
 [![License](https://img.shields.io/badge/License-Apache--2.0-green.svg)](LICENSE)
+
+---
+
+## 🚀 快速开始
+
+### 方式一：使用示例数据训练（推荐新手）
+
+```bash
+python -m src.run --quick
+```
+
+### 方式二：使用自定义数据
+
+```bash
+python -m src.run --train 数据文件.jsonl
+```
+
+### 方式三：继续上次训练
+
+```bash
+python -m src.run --resume
+```
+
+---
+
+## 📖 使用指南
+
+### 基础训练
+
+```bash
+# 使用示例数据，20轮训练
+python -m src.run
+
+# 指定数据文件和训练轮数
+python -m src.run --train 我的数据.jsonl --epochs 50
+
+# 强制使用CPU（没有GPU时）
+python -m src.run --train 我的数据.jsonl --no_cuda
+```
+
+### 使用预设置
+
+系统提供4种预设置，平衡速度和效果：
+
+| 预设置 | 适用场景 | 参数 |
+|--------|---------|------|
+| `quick` | 快速测试 | 5轮, 小模型 |
+| `small` | 日常训练 | 20轮, 小模型 |
+| `medium` | 正式训练 | 30轮, 中型模型 |
+| `large` | 高质量模型 | 50轮, 大型模型 |
+
+```bash
+python -m src.run --preset small
+python -m src.run --preset medium
+python -m src.run --preset large
+```
+
+### 自定义参数
+
+```bash
+# 自定义模型架构
+python -m src.run --train 数据.jsonl \
+  --d_model 256 \
+  --num_layers 8 \
+  --nhead 8 \
+  --context_length 256
+
+# 自定义训练参数
+python -m src.run --train 数据.jsonl \
+  --epochs 100 \
+  --batch_size 16 \
+  --lr 1e-4
+
+# 自定义保存目录
+python -m src.run --train 数据.jsonl \
+  --save_dir model_weights/我的模型
+```
+
+### 常用参数
+
+**模型架构:**
+- `-l, --num_layers`: Transformer层数 (默认: 6)
+- `--d_model`: 模型维度 (默认: 192)
+- `--nhead`: 注意力头数 (默认: 4)
+- `-c, --context_length`: 上下文长度 (默认: 128)
+
+**训练参数:**
+- `-e, --epochs`: 训练轮数 (默认: 20)
+- `-b, --batch_size`: 批次大小 (默认: 8)
+- `--lr`: 学习率 (默认: 3e-4)
+
+**控制选项:**
+- `--resume`: 继续上次训练
+- `--clean`: 训练前清理旧日志
+- `--no_cuda`: 强制使用CPU
+
+### 高级用法
+
+```bash
+# 使用YAML配置文件
+python -m src.run --config config/pretrain.yaml
+
+# 组合使用
+python -m src.run \
+  --preset small \
+  --train 我的数据.jsonl \
+  --epochs 100 \
+  --save_dir model_weights/实验1
+```
+
+---
 
 ## 🔧 2025-2026 核心特性
 
@@ -14,273 +125,153 @@
 
 | 特性 | 描述 | 性能提升 |
 |------|------|---------|
-| **HuggingFace Accelerate** | 多GPU/TPU分布式训练 | 线性扩展 |
-| **BF16/FP16 混合精度** | 自动混合精度训练 | 1.5-2x 加速 |
-| **Gradient Checkpointing** | 显存优化 | 50-60% 节省 |
-| **torch.compile** | JIT编译优化 | 1.2-1.5x 加速 |
-| **Fused AdamW** | 融合优化器 | 1.2-1.3x 加速 |
-| **Modern Architecture** | RoPE + SwiGLU + GQA | 效率和效果 |
+| **RoPE位置编码** | 更好的长度外推能力 | 长文本处理 |
+| **SwiGLU激活** | 更高效的FFN层 | 效果提升 |
+| **GQA分组注意力** | 减少KV缓存 | 显存节省 |
+| **权重绑定** | 共享嵌入层和输出层 | 减少20%参数 |
+| **梯度检查点** | 显存优化 | 30-50% 节省 |
+| **torch.compile** | JIT编译优化 | 2-3x 加速 |
+| **混合精度训练** | BF16/FP16自动选择 | 1.5-2x 加速 |
 
 ---
 
-## 🚀 快速开始
+## 📁 数据格式
 
-### 基础训练
+训练数据使用JSONL格式，每行一条数据：
 
+```json
+{"text": "床前明月光，疑是地上霜。举头望明月，低头思故乡。"}
+{"text": "白日依山尽，黄河入海流。欲穷千里目，更上一层楼。"}
+```
+
+支持字段：`text`, `content`, `body`
+
+---
+
+## 📂 输出
+
+训练完成后，模型保存在 `--save_dir` 指定的目录：
+
+```
+model_weights/
+├── best_model.pt          # 最佳模型
+├── final_model_v*.pt      # 最终模型
+├── model_epoch_1.pt       # 第1轮checkpoint
+├── model_epoch_2.pt       # 第2轮checkpoint
+└── ...
+```
+
+---
+
+## ⚙️ 故障排除
+
+**训练太慢?**
 ```bash
-# 1. 安装依赖
-pip install -r requirements.txt
+# 启用所有优化
+python -m src.run --train 数据.jsonl
 
-# 2. 准备分词器（推荐训练前执行）
-python -m src.run --prepare
-
-# 3. 训练模型（使用默认配置）
-python -m src.run --config config/default.yaml
-
-# 4. 生成文本
-python generate.py --checkpoint model_weights/best_model.pt
+# 或者使用更小的模型
+python -m src.run --preset quick
 ```
 
-### 2025-2026最佳实践快速配置
-
-```yaml
-# config/high_performance.yaml - 高性能配置
-training:
-  use_amp: true
-  amp_dtype: "bf16"           # BF16混合精度
-  use_compile: true           # torch.compile优化
-  use_gradient_checkpointing: true
-  use_fused_adamw: true
-
-# 多GPU训练
-# accelerate launch train.py
-```
-
-### 性能基准测试结果
-
-| 配置 | GPU | Batch Size | 训练速度 | 显存使用 |
-|------|-----|-----------|---------|---------|
-| 基础 | RTX 3090 | 8 | 1x (基准) | 100% |
-| AMP | RTX 3090 | 16 | 1.6x | 100% |
-| 全优化 | A100 | 32 | 4.2x | 95% |
-| 分布式 | 4x A100 | 128 | 7.8x | 90% |
-
----
-
-## 📁 Project Structure
-
-```
-lingmao_moyun/
-├── src/                      # Core modules
-│   ├── config/              # Configuration system (NEW)
-│   │   ├── schema.py         # Pydantic configuration schemas
-│   │   └── validator.py      # Configuration validation
-│   ├── config.py            # Configuration constants
-│   ├── dataset.py           # LMDataset implementation
-│   ├── logger.py            # Logging utilities
-│   ├── model.py             # SimpleTransformer
-│   ├── trainer.py           # Training loop & evaluation
-│   ├── run.py               # CLI entry point
-│   └── utils.py             # General utilities
-├── config/                   # Configuration templates (NEW)
-│   ├── pretrain.yaml        # Pretraining template
-│   ├── sft.yaml             # SFT template
-│   ├── rl.yaml              # RL template
-│   └── default.yaml         # Default configuration
-├── examples/                 # Training examples (NEW)
-│   ├── pretrain_example.py  # Pretraining runner
-│   ├── sft_example.py       # SFT training runner
-│   └── eval_example.py      # Model evaluation
-├── docs/
-│   ├── experiments/         # Experiment platform docs (NEW)
-│   │   ├── README.md        # Usage guide
-│   │   └── quickstart.md    # Quick start
-│   ├── cn/                  # Chinese documentation
-│   └── en/                  # English documentation
-├── dataset/                 # Training data
-├── processors/             # Data processors
-├── model_weights/          # Saved checkpoints
-├── test/                   # Test suite
-├── train_model.py          # Legacy entry (uses src/)
-├── generate.py             # Text generation
-├── tokenizer.py            # ClassicalTokenizer
-└── requirements.txt
-```
-
----
-
-## 📊 训练数据
-
-灵猫墨韵项目使用中国古典文献作为训练数据，支持多种数据格式和来源。
-
-### 数据概览
-
-| 数据类型 | 描述 | 文件格式 |
-|---------|------|----------|
-| **古典文献** | 论语、道德经、庄子等先秦典籍 | JSONL |
-| **诗词歌赋** | 唐诗、宋词等经典诗词 | JSONL |
-| **古典术语** | 专业术语词典 | JSONL/TXT |
-
-### 数据获取
-
+**显存不足?**
 ```bash
-# 使用内置脚本下载数据
-python processors/download_poetry.py
+# 启用夜间模式（自动降低显存占用）
+python -m src.run --train 数据.jsonl --night_mode
 
-# 一键数据准备（下载→清洗→转换→合并）
-./scripts/data_pipeline.sh --full
+# 减小批次大小
+python -m src.run --train 数据.jsonl --batch_size 2
 ```
 
-### 数据文档
-
-- [📚 数据概览](docs/data/README.md) - 数据目录结构和概览
-- [🚀 数据获取指南](docs/data/getting_started.md) - 详细的数据获取与预处理流程
-- [📋 数据格式说明](docs/data/formats.md) - JSONL格式规范和字段说明
-- [📊 DATASET.md](DATASET.md) - 完整数据集文档
-
-### 快速开始：数据准备
-
+**想从头开始?**
 ```bash
-# 1. 创建数据目录
-mkdir -p dataset/raw dataset/processed dataset/tokenized
-
-# 2. 下载原始数据
-./scripts/data_pipeline.sh --download --type poetry --type classical
-
-# 3. 预处理数据
-./scripts/data_pipeline.sh --process
-
-# 4. 合并数据
-cat dataset/processed/poetry.jsonl dataset/processed/classical.jsonl \
-    > dataset/processed/merged.jsonl
-
-# 5. 准备分词器
-python -m src.run --prepare
-```
-
-### 数据格式示例
-
-```jsonl
-{"book": "论语", "chapter": "学而", "paragraph_index": 1, "content": "子曰：学而时习之，不亦说乎？", "difficulty": 0.4, "tags": ["论语", "儒家"]}
-{"book": "唐诗三百首", "chapter": "五言绝句", "paragraph_index": 1, "title": "静夜思", "author": "李白", "dynasty": "唐", "content": "床前明月光，疑是地上霜。", "difficulty": 0.2, "tags": ["五言绝句", "思乡"]}
+# 清理旧日志和checkpoint
+python -m src.run --train 数据.jsonl --clean
 ```
 
 ---
 
-## 🚀 Quick Start
+## 📚 项目结构
 
-```bash
-# 1. Install dependencies
-pip install -r requirements.txt
-
-# 2. Prepare tokenizer (recommended before training)
-python -m src.run --prepare
-
-# 3. Train model
-python -m src.run --config config/default.yaml
-
-# 4. Generate text
-python generate.py --checkpoint model_weights/best_model.pt
+```
+灵猫墨韵/
+├── src/                 # 核心代码
+│   ├── config/        # 配置管理
+│   ├── data/          # 数据处理模块
+│   ├── evaluation/    # 评估模块
+│   ├── experiments/  # 实验追踪
+│   ├── training/      # 训练器模块
+│   ├── config.py      # 配置常量
+│   ├── dataset.py     # 数据集类
+│   ├── logger.py      # 日志工具
+│   ├── model.py       # 模型定义
+│   ├── quantization.py# 量化工具
+│   ├── run.py         # 命令行入口
+│   ├── trainer.py     # 训练循环
+│   └── utils.py       # 通用工具
+├── config/            # 配置文件
+├── dataset/           # 数据集目录
+├── logs/              # 训练日志
+└── model_weights/     # 模型权重
 ```
 
 ---
 
-## 📜 Modules
+## 🔧 配置系统
+
+编辑 `config/config.yaml` 或创建你自己的配置文件。关键参数：
+
+| 参数 | 默认值 | 描述 |
+|------|--------|------|
+| `d_model` | 192 | 模型维度 |
+| `nhead` | 4 | 注意力头数 |
+| `num_layers` | 6 | Transformer层数 |
+| `context_length` | 128 | 输入序列长度 |
+| `batch_size` | 8 | 训练批次大小 |
+| `learning_rate` | 3e-4 | 学习率 |
+
+---
+
+## 🎯 下一步
+
+1. 准备你的古典中文数据集
+2. 运行快速测试 `python -m src.run --quick`
+3. 根据需要调整参数
+4. 开始正式训练！
+
+---
+
+## 📜 模块说明
 
 ### `src.config`
-All magic numbers extracted as named constants. Edit here instead of hunting through code.
+所有魔法数字提取为命名常量。编辑这里而不是在代码中搜索。
 
 ### `src.dataset`
-`LMDataset` — memory-mapped dataset for efficient large-file training.
+`LMDataset` — 内存映射数据集，高效处理大文件训练。
 
 ### `src.model`
-`SimpleTransformer` — lightweight transformer with `PositionalEncoding`.
+`SimpleTransformer` — 支持Modern模式的轻量级Transformer（RoPE + SwiGLU + GQA）。
 
 ### `src.trainer`
-`train_model()`, `evaluate_model()`, checkpoint save/load utilities.
+`train_model()` - 完整的训练循环、评估和checkpoint保存/加载工具。
 
 ### `src.run`
-CLI interface via `python -m src.run`.
+CLI入口 via `python -m src.run`。
 
 ---
 
-## 🔧 Configuration
+## ⚠️ 已知问题和限制
 
-Edit `config/config.yaml` or create your own. Key settings:
-
-| Parameter | Default | Description |
-|----------|---------|-------------|
-| `d_model` | 256 | Model dimension |
-| `nhead` | 8 | Attention heads |
-| `num_layers` | 6 | Transformer layers |
-| `context_length` | 256 | Input sequence length |
-| `batch_size` | 32 | Training batch size |
-| `learning_rate` | 1e-3 | Optimizer learning rate |
+- ClassicalTokenizer使用贪婪最大匹配；计划使用BPE/WordPiece混合方案
+- 大数据集加载受内存限制；mmap有帮助但推荐32GB+内存
+- MacOS Metal GPU支持尚未测试
 
 ---
 
-## 🔬 Experiment Platform
+## 🤝 贡献和讨论
 
-The project includes a comprehensive experiment platform for training and evaluation:
-
-### Configuration System
-
-- **Schema Validation**: [src/config/schema.py](src/config/schema.py) - Pydantic-based configuration schemas
-- **Validator**: [src/config/validator.py](src/config/validator.py) - Configuration validation and templates
-
-### Training Modes
-
-| Mode | Config | Description |
-|------|--------|-------------|
-| Pretraining | [config/pretrain.yaml](config/pretrain.yaml) | Base model pretraining |
-| SFT | [config/sft.yaml](config/sft.yaml) | Supervised fine-tuning |
-| RL | [config/rl.yaml](config/rl.yaml) | Reinforcement learning |
-
-### Examples
-
-- [examples/pretrain_example.py](examples/pretrain_example.py) - Pretraining runner
-- [examples/sft_example.py](examples/sft_example.py) - SFT training runner
-- [examples/eval_example.py](examples/eval_example.py) - Model evaluation
-
-### Documentation
-
-- [docs/experiments/README.md](docs/experiments/README.md) - Complete usage guide
-- [docs/experiments/quickstart.md](docs/experiments/quickstart.md) - Quick start tutorial
-
-Quick usage:
-```bash
-# Validate config
-python -m src.config.validator config/pretrain.yaml
-
-# Run pretraining
-python examples/pretrain_example.py --config config/pretrain.yaml
-
-# Run evaluation
-python examples/eval_example.py --model model_weights/best_model.pt --test-file dataset/test.txt
-```
+欢迎提交Issue或PR！这是一个学习项目——欢迎建设性反馈。
 
 ---
 
-## 📚 Documentation
-
-- [English](docs/en/)
-- [中文](docs/cn/)
-- [Experiments](docs/experiments/)
-
----
-
-## ⚠️ Known Issues & Limitations
-
-- `ClassicalTokenizer` uses greedy max-match; BPE/WordPiece hybrid planned
-- Large dataset loading is memory-bound; mmap helps but 32GB+ RAM recommended
-- MacOS Metal GPU support not yet tested
-
----
-
-## 🤝 Contributing & Discussion
-
-Open an issue or PR! This is a learning project — constructive feedback welcome.
-
----
-
-_Last updated: 2026-04-05_
+_最后更新: 2026-05-16_
