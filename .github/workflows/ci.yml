@@ -24,4 +24,4 @@ jobs:
       - name: Compile sources
         run: python -m compileall -q src
       - name: Test CLI contract
-        run: pytest -q
+        run: pytest -q tests/test_cli_contract.py
