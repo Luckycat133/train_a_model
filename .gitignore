@@ -41,11 +41,13 @@ venv/
 env/
 .env/
 
-# 模型权重和缓存
+# 模型权重和缓存（权重存放在外部存储，不进入 Git）
+*.pt
 *.pth
 *.ckpt
-*.pt
-!model_weights/**/*
+model_weights/*
+!model_weights/README.md
+quick_runs/
 
 # 日志文件
 *.log
