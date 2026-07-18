@@ -1,9 +1,10 @@
-"""src - Core modules for the Lingmao Moyun language model training system."""
+"""Core package for the Lingmao Moyun training experiment.
 
-from src.config import *
-from src.logger import setup_logger, log_info, log_warning, log_error, log_success
-from src.dataset import LMDataset
-from src.model import SimpleTransformer, PositionalEncoding
+Heavy NumPy/PyTorch modules are loaded lazily so metadata and CLI help remain
+available in lightweight environments.
+"""
+
+from src.logger import log_error, log_info, log_success, log_warning, setup_logger
 
 __all__ = [
     "LMDataset",
@@ -15,3 +16,18 @@ __all__ = [
     "log_error",
     "log_success",
 ]
+
+
+def __getattr__(name):
+    if name == "LMDataset":
+        from src.dataset import LMDataset
+
+        return LMDataset
+    if name in {"SimpleTransformer", "PositionalEncoding"}:
+        from src.model import PositionalEncoding, SimpleTransformer
+
+        return {
+            "SimpleTransformer": SimpleTransformer,
+            "PositionalEncoding": PositionalEncoding,
+        }[name]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
