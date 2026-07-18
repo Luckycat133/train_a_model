@@ -33,7 +33,6 @@ from src.config import (
     VERSION,
 )
 from src.logger import get_logger
-from src.trainer import train_model
 
 logger = get_logger("LingmaoMoyun")
 
@@ -57,6 +56,33 @@ def _clean_before_run(model_save_dir: str, clean_plots: bool = True) -> None:
                 pass
         if removed:
             logger.info(f"Removed {removed} old plot file(s)")
+
+
+def _apply_quick_preset(args: argparse.Namespace) -> None:
+    """Apply a deterministic, CPU-friendly smoke-training configuration."""
+    if not args.quick:
+        return
+
+    if args.train_file == "dataset/train_data_train.jsonl":
+        args.train_file = "examples/quick_train.jsonl"
+    if args.model_save_dir == MODEL_SAVE_DIR:
+        args.model_save_dir = "quick_runs"
+
+    args.context_length = 32
+    args.d_model = 32
+    args.nhead = 4
+    args.num_layers = 1
+    args.dim_feedforward = 64
+    args.batch_size = 1
+    args.epochs = 1
+    args.accumulation_steps = 1
+    args.checkpoint_every = 1
+    args.use_amp = False
+    args.use_checkpoint = False
+    args.use_compile = False
+    args.auto_resume = False
+    args.night_mode = False
+    args.window_size = 32
 
 
 def main() -> None:
@@ -104,6 +130,16 @@ def main() -> None:
     parser.add_argument("--auto_resume", action="store_true", default=True)
     parser.add_argument("--no_auto_resume", dest="auto_resume", action="store_false")
 
+    # Stable convenience aliases documented in README
+    parser.add_argument("--quick", action="store_true",
+                        help="Run a one-epoch CPU-friendly smoke experiment")
+    parser.add_argument("--train", dest="train_file",
+                        help="Alias for --train_file")
+    parser.add_argument("--save_dir", dest="model_save_dir",
+                        help="Alias for --model_save_dir")
+    parser.add_argument("--resume", action="store_true",
+                        help="Resume automatically from the newest checkpoint")
+
     # Behaviour
     parser.add_argument("--night_mode", dest="night_mode", action="store_true", default=True)
     parser.add_argument("--no_night_mode", dest="night_mode", action="store_false")
@@ -114,26 +150,30 @@ def main() -> None:
     parser.add_argument("--config", type=str, default=None,
                         help="Path to YAML config file")
 
-    args, extra = parser.parse_known_args()
-    config_overrides = {}
-    if args.config:
-        with open(args.config) as f:
+    config_probe, _ = parser.parse_known_args()
+    if config_probe.config:
+        with open(config_probe.config, encoding="utf-8") as f:
             config_overrides = yaml.safe_load(f) or {}
+        valid_destinations = {action.dest for action in parser._actions}
+        unknown_keys = sorted(set(config_overrides) - valid_destinations)
+        if unknown_keys:
+            parser.error("Unknown config keys: " + ", ".join(unknown_keys))
+        parser.set_defaults(**config_overrides)
 
-    # Build arg list from config dict, then re-parse
-    config_args = []
-    for key, value in config_overrides.items():
-        if value is not None:
-            config_args.extend(["--" + key, str(value)])
-    config_args.extend(extra)
+    # Parse the complete CLI after applying YAML defaults. Explicit CLI flags win.
+    args = parser.parse_args()
+    _apply_quick_preset(args)
+    if args.resume:
+        args.auto_resume = True
 
-    args = parser.parse_args(config_args)
+    # Import the training stack only when a training run actually starts.
+    # This keeps --help and CLI contract tests lightweight.
+    import torch
+    from src.trainer import train_model
 
     if args.no_cuda:
-        import torch
         device = torch.device("cpu")
     else:
-        import torch
         if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
             device = torch.device("mps")
         elif torch.cuda.is_available():
