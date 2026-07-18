@@ -1,0 +1,155 @@
+# Pretraining Configuration Template
+# Lingmao Moyun Project
+# 2025-2026 Best Practices Edition
+
+experiment_type: pretrain
+experiment_name: pretrain_baseline
+seed: 42
+version: "0.8.5"
+
+# Model Architecture Configuration
+# 2025-2026 Modern Transformer Architecture
+model:
+  # Core dimensions
+  d_model: 768              # Model hidden dimension (typical: 768-2048)
+  nhead: 12                 # Number of attention heads (d_model % nhead == 0)
+  num_layers: 12            # Number of transformer layers
+  dim_feedforward: 3072     # FFN intermediate dimension (typically 4x d_model)
+  dropout: 0.1              # Dropout rate (0.1-0.2 for pretraining)
+  max_len: 1024             # Maximum sequence length
+  
+  # Vocabulary
+  vocab_size: 50000         # Token vocabulary size
+  
+  # 2025-2026 Architecture Innovations
+  num_kv_heads: null        # Key-Value heads for GQA (null = MHA, < nhead = GQA)
+  head_dim: 64              # Per-head dimension (must divide d_model)
+  
+  # Weight optimization
+  use_weight_tying: true    # Tie input/output embeddings (reduces params)
+  
+  # Sliding window attention
+  use_sliding_window: false # Enable sliding window attention (SWA)
+  swa_window_size: 512      # SWA window size
+  
+  # Multi-head Latent Attention (MLA) - DeepSeek style
+  use_mla: false            # Enable MLA (memory-efficient attention)
+  mla_latent_dim: 128       # Latent dimension for MLA
+  mla_num_latent_heads: 4   # Number of latent heads
+  
+  # Mixture of Experts
+  use_moe: false            # Enable MoE (sparse gating)
+  num_experts: 8            # Number of experts in MoE
+  top_k: 2                  # Top-k experts to activate
+  
+  # Mode selection
+  mode: modern               # modern (RoPE+SwiGLU) or legacy (sinusoidal+ReGLU)
+
+# Training Hyperparameters
+# 2025-2026 Best Practice Settings
+training:
+  # Data configuration
+  context_length: 512       # Input sequence length for training
+  batch_size: 8             # Batch size per device
+  
+  # Optimizer settings
+  learning_rate: 5.0e-5     # Peak learning rate (5e-5 to 1e-4 for pretraining)
+  epochs: 10                # Number of training epochs
+  accumulation_steps: 4     # Gradient accumulation (effective_bs = batch_size * accum)
+  max_grad_norm: 1.0        # Gradient clipping norm
+  weight_decay: 0.01        # L2 regularization
+  
+  # Checkpointing
+  checkpoint_every: 1       # Save checkpoint every N epochs
+  
+  # Learning rate schedule
+  warmup_steps: 1000       # Warmup steps (1-2% of total steps)
+  total_training_steps: 10000  # Total training steps
+  min_lr_ratio: 0.1         # Minimum LR as ratio of peak (cosine decay)
+  
+  # Regularization
+  label_smoothing: 0.1      # Label smoothing factor
+  
+  # 2025-2026 Performance Optimizations
+  use_amp: true             # Enable Automatic Mixed Precision (AMP)
+  amp_dtype: "bf16"         # AMP dtype: "bf16" (preferred) or "fp16"
+  
+  use_compile: false        # Enable torch.compile (PyTorch 2.0+)
+                           # Modes: "default", "reduce-overhead", "max-autotune"
+  compile_mode: "default"
+  
+  use_gradient_checkpointing: true  # Enable gradient checkpointing
+                                      # Trades 20-30% compute for 50-60% memory savings
+  
+  # Logging
+  log_stats_interval: 100  # Log stats every N steps
+
+# Dataset Configuration
+dataset:
+  # Data loading
+  stride: 256               # Stride for text chunking
+  max_chunks: null          # Maximum chunks to load (null = all)
+  memmap_threshold: 10000000  # File size threshold for memory mapping
+  batch_load_size: 100      # Batch size for data loading
+  sample_array_init_size: 1000  # Initial array size for sampling
+  
+  # Data files (customize these paths)
+  train_file: dataset/train.txt
+  test_file: dataset/test.txt
+  val_file: null
+  data_format: text         # text, jsonl, or chatml
+
+# Memory and Performance Settings
+memory:
+  max_cache_size: 10000    # Cache size for tokenization
+  memory_map_suffix: ".dat" # Suffix for memory-mapped files
+  gpu_memory_frac: 0.90     # Fraction of GPU memory to use
+  cpu_offload: false        # Enable CPU offloading for parameters
+  use_fused_adamw: true    # Use fused AdamW (20-30% speedup on CUDA)
+
+# Night Mode Power Saving
+# Automatically adjusts resources during off-hours
+night_mode:
+  enabled: false           # Enable power-saving mode
+  start_hour: 21           # Night mode start hour (24h format)
+  end_hour: 8              # Night mode end hour
+  batch_divisor: 2         # Reduce batch size by this factor
+  gpu_memory_frac: 0.50     # Reduced GPU memory allocation
+  cpu_cores_divisor: 2      # Reduce CPU usage
+
+# Tokenizer Configuration
+tokenizer:
+  path: tokenizer.json     # Path to tokenizer model
+  cache_maxsize: 16384      # Tokenizer cache size
+  vocab_size: 16000         # Tokenizer vocabulary size
+  
+  special_tokens:           # Special tokens
+    - "<pad>"
+    - "<unk>"
+    - "<bos>"
+    - "<eos>"
+    - "<sep>"
+    - "<cls>"
+  
+  # BPE options (for future tokenizer upgrades)
+  use_bpe: false
+  bpe_vocab_size: 32768
+  bpe_model_type: unigram   # unigram, bpe, or wordpiece
+  char_coverage: 1.0        # Character coverage (1.0 = full)
+  byte_fallback: false      # Enable byte-level fallback
+
+# Paths Configuration
+paths:
+  log_dir: logs            # Log directory
+  log_subdir: pretrain      # Experiment subdirectory
+  model_save_dir: model_weights/pretrain  # Model checkpoint directory
+  checkpoint_name_prefix: checkpoint_epoch
+  best_model_name: best_model
+  final_model_name_prefix: final_model
+
+# Tags for experiment tracking
+tags:
+  - pretrain
+  - baseline
+  - classical-chinese
+  - 2025-2026

@@ -1,0 +1,183 @@
+# Reinforcement Learning (RL) Configuration Template
+# Lingmao Moyun Project
+# 2025-2026 Best Practices Edition
+
+experiment_type: rl
+experiment_name: rl_baseline
+seed: 42
+version: "0.8.5"
+
+# Model Architecture Configuration
+# Typically loaded from SFT checkpoint
+model:
+  # Core dimensions
+  d_model: 512              # Model hidden dimension
+  nhead: 8                 # Number of attention heads
+  num_layers: 6            # Number of transformer layers
+  dim_feedforward: 2048     # FFN intermediate dimension
+  dropout: 0.0            # No dropout for RL (0.0)
+  max_len: 512             # Maximum sequence length
+  vocab_size: 50000        # Token vocabulary size
+
+  # 2025-2026 Architecture Innovations
+  num_kv_heads: null       # Key-Value heads for GQA
+  head_dim: 64             # Per-head dimension
+  use_weight_tying: true   # Tie input/output embeddings
+
+  # Sliding window
+  use_sliding_window: false
+  swa_window_size: 512
+
+  # Multi-head Latent Attention
+  use_mla: false
+  mla_latent_dim: 128
+  mla_num_latent_heads: 4
+
+  # Mixture of Experts
+  use_moe: false
+  num_experts: 8
+  top_k: 2
+
+  # Mode selection
+  mode: modern             # modern or legacy
+
+# Training Hyperparameters
+# 2025-2026 Best Practice Settings for RL
+training:
+  # Data configuration
+  context_length: 256      # Context length for RL
+  batch_size: 4            # Smaller batch for RL stability
+  learning_rate: 1.0e-5    # Lower LR for RL stability (typically 1e-6 to 5e-6)
+  epochs: 10               # More epochs for RL
+  accumulation_steps: 8    # Higher accumulation for effective larger batch
+
+  # Optimization
+  max_grad_norm: 1.0       # Gradient clipping norm (use 0.5-1.0 for RL)
+  weight_decay: 0.01       # L2 regularization
+
+  # Checkpointing
+  checkpoint_every: 1      # Save checkpoint every N epochs
+
+  # Learning rate schedule
+  warmup_steps: 100       # Warmup steps
+  total_training_steps: 5000  # Total training steps (RL needs fewer steps)
+  min_lr_ratio: 0.1        # Minimum LR ratio
+
+  # Regularization
+  label_smoothing: 0.0     # No label smoothing for RL
+
+  # 2025-2026 Performance Optimizations
+  use_amp: true            # Enable Automatic Mixed Precision (AMP)
+  amp_dtype: "bf16"        # AMP dtype: "bf16" (preferred for stability)
+
+  use_compile: false       # Disable compile for RL (stability issues)
+  compile_mode: "default"
+
+  use_gradient_checkpointing: true  # Enable for RL (memory-intensive)
+
+  # Logging
+  log_stats_interval: 50   # More frequent logging for RL
+
+# Dataset Configuration
+dataset:
+  # Data loading
+  stride: 256
+  max_chunks: null
+  memmap_threshold: 10000000
+  batch_load_size: 100
+  sample_array_init_size: 1000
+
+  # Data files (preference data / prompts)
+  train_file: dataset/rl_train.jsonl
+  val_file: dataset/rl_val.jsonl
+  test_file: null
+  data_format: jsonl
+
+# RL-Specific Configuration
+# 2025-2026 RL Training Best Practices
+rl:
+  # Model paths
+  reward_model_path: model_weights/reward_model.pt  # Reward model checkpoint
+  reference_model_path: model_weights/sft/final_model.pt  # SFT model as reference
+
+  # Reward and KL settings
+  reward_scale: 1.0        # Scale factor for rewards
+  kl_coef: 0.1            # KL penalty coefficient (beta in PPO)
+
+  # PPO/GAE settings
+  gamma: 0.99             # Discount factor (future rewards)
+  lam: 0.95               # GAE lambda (bias-variance tradeoff)
+  clip_range: 0.2         # PPO clip range (epsilon in PPO)
+  ppo_epochs: 4           # Number of PPO update epochs per batch
+  mini_batch_size: 4     # Mini-batch size for PPO updates
+
+  # Loss coefficients
+  entropy_coef: 0.01     # Entropy bonus coefficient (encourages exploration)
+  value_loss_coef: 0.5    # Value function loss weight
+
+  # 2025-2026 RL Optimizations
+  use_adaptive_kl: true   # Adaptive KL targeting (auto-adjust kl_coef)
+  target_kl: 0.015        # Target KL for adaptive targeting
+
+  # Gradient estimation
+  use_mixed_gae: true    # Mix of Monte Carlo and GAE for advantages
+  gae_gamma: 0.99        # GAE discount factor
+  gae_lambda: 0.95       # GAE lambda parameter
+
+  # Reference model updates
+  use_reference_model: true  # Use reference model for KL constraint
+  reference_update_interval: 100  # Update reference model every N steps
+
+# Memory and Performance Settings
+memory:
+  max_cache_size: 10000
+  memory_map_suffix: ".dat"
+  gpu_memory_frac: 0.80   # More memory for RL buffers (actor/critic)
+  cpu_offload: false
+  use_fused_adamw: true   # Use fused AdamW
+
+# Night Mode Power Saving
+night_mode:
+  enabled: false           # Enable power-saving mode
+  start_hour: 21
+  end_hour: 8
+  batch_divisor: 2
+  gpu_memory_frac: 0.40   # More aggressive reduction for RL
+  cpu_cores_divisor: 2
+
+# Tokenizer Configuration
+tokenizer:
+  path: tokenizer.json
+  cache_maxsize: 16384
+  vocab_size: 16000
+
+  special_tokens:
+    - "<pad>"
+    - "<unk>"
+    - "<bos>"
+    - "<eos>"
+    - "<sep>"
+    - "<cls>"
+
+  # BPE options
+  use_bpe: false
+  bpe_vocab_size: 32768
+  bpe_model_type: unigram
+  char_coverage: 1.0
+  byte_fallback: false
+
+# Paths Configuration
+paths:
+  log_dir: logs
+  log_subdir: rl
+  model_save_dir: model_weights/rl  # Separate directory for RL checkpoints
+  checkpoint_name_prefix: checkpoint_epoch
+  best_model_name: best_model
+  final_model_name_prefix: final_model
+
+# Tags for experiment tracking
+tags:
+  - rl
+  - ppo
+  - reinforcement-learning
+  - 2025-2026

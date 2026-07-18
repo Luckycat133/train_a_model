@@ -1,0 +1,267 @@
+# 灵猫墨韵项目 - 数据源配置文件
+# 定义所有可用数据源，包含URL、许可证、大小等信息
+
+project_name: "灵猫墨韵"
+project_version: "1.0"
+config_version: "1.0"
+
+# 数据源列表
+data_sources:
+  # 古文数据源
+  - name: "guoxue_baodian"
+    category: "classical"
+    description: "国学经典文库 - 四书五经等传统经典"
+    url: "https://example.com/data/guoxue_classical.json"
+    format: "json"
+    size: 5242880
+    sha256: "a1b2c3d4e5f6..."
+    license: "CC BY-SA 4.0"
+    attribution: "国学大师网"
+    language: "zh-classical"
+    author: "古代文献整理"
+
+  - name: "shuowen_jiezi"
+    category: "classical"
+    description: "说文解字 - 汉字字源字典"
+    url: "https://example.com/data/shuowen.json"
+    format: "json"
+    size: 2097152
+    sha256: "b2c3d4e5f6g7..."
+    license: "CC BY-NC-SA 4.0"
+    attribution: "古文字学研究所"
+    language: "zh-classical"
+    author: "许慎"
+
+  - name: "tangshi_collection"
+    category: "classical"
+    description: "唐诗三百首 - 经典唐诗选集"
+    url: "https://example.com/data/tangshi.json"
+    format: "json"
+    size: 1572864
+    sha256: "c3d4e5f6g7h8..."
+    license: "Public Domain"
+    attribution: "蘅塘退士"
+    language: "zh-classical"
+    author: "蘅塘退士"
+
+  - name: "songci_anthology"
+    category: "classical"
+    description: "宋词精选 - 经典宋词合集"
+    url: "https://example.com/data/songci.json"
+    format: "json"
+    size: 1835008
+    sha256: "d4e5f6g7h8i9..."
+    license: "Public Domain"
+    attribution: "在线宋词库"
+    language: "zh-classical"
+    author: "历代词人"
+
+  - name: "lunyu_text"
+    category: "classical"
+    description: "论语 - 儒家经典"
+    url: "https://example.com/data/lunyu.json"
+    format: "json"
+    size: 102400
+    sha256: "e5f6g7h8i9j0..."
+    license: "Public Domain"
+    attribution: "孔子"
+    language: "zh-classical"
+    author: "孔子及其弟子"
+
+  # 现代文数据源
+  - name: "modern_literature"
+    category: "modern"
+    description: "现代文学作品集"
+    url: "https://example.com/data/modern_literature.json"
+    format: "json"
+    size: 10485760
+    sha256: "f6g7h8i9j0k1..."
+    license: "CC BY-NC-SA 4.0"
+    attribution: "现代文学馆"
+    language: "zh-modern"
+    author: "鲁迅、老舍等"
+
+  - name: "news_corpus"
+    category: "modern"
+    description: "新闻语料库"
+    url: "https://example.com/data/news_corpus.json"
+    format: "json"
+    size: 20971520
+    sha256: "g7h8i9j0k1l2..."
+    license: "CC BY 4.0"
+    attribution: "新闻聚合平台"
+    language: "zh-modern"
+    author: "各新闻媒体"
+
+  - name: "wikipedia_zh"
+    category: "modern"
+    description: "中文维基百科内容"
+    url: "https://example.com/data/wikipedia_zh.json"
+    format: "json"
+    size: 52428800
+    sha256: "h8i9j0k1l2m3..."
+    license: "CC BY-SA 3.0"
+    attribution: "维基百科社区"
+    language: "zh-modern"
+    author: "维基百科贡献者"
+
+  # 百科数据源
+  - name: "baidu_baike"
+    category: "baike"
+    description: "百度百科词条"
+    url: "https://example.com/data/baidu_baike.json"
+    format: "json"
+    size: 41943040
+    sha256: "i9j0k1l2m3n4..."
+    license: "CC BY-SA 3.0"
+    attribution: "百度百科"
+    language: "zh-modern"
+    author: "百度百科编辑者"
+
+  - name: "hudong_baike"
+    category: "baike"
+    description: "互动百科词条"
+    url: "https://example.com/data/hudong_baike.json"
+    format: "json"
+    size: 31457280
+    sha256: "j0k1l2m3n4o5..."
+    license: "CC BY-SA 3.0"
+    attribution: "互动百科"
+    language: "zh-modern"
+    author: "互动百科编辑者"
+
+  - name: "baike_misc"
+    category: "baike"
+    description: "综合百科知识"
+    url: "https://example.com/data/baike_general.json"
+    format: "json"
+    size: 26214400
+    sha256: "k1l2m3n4o5p6..."
+    license: "CC BY-SA 4.0"
+    attribution: "开放百科联盟"
+    language: "zh-modern"
+    author: "百科知识库"
+
+  # 对话数据源
+  - name: "dialogue_corpus"
+    category: "dialogue"
+    description: "中文对话语料库"
+    url: "https://example.com/data/dialogue_corpus.json"
+    format: "json"
+    size: 15728640
+    sha256: "l2m3n4o5p6q7..."
+    license: "CC BY-NC 4.0"
+    attribution: "对话AI研究组"
+    language: "zh"
+    author: "对话数据集标注团队"
+
+  - name: "qa_pairs"
+    category: "dialogue"
+    description: "问答对数据集"
+    url: "https://example.com/data/qa_pairs.json"
+    format: "json"
+    size: 8388608
+    sha256: "m3n4o5p6q7r8..."
+    license: "CC BY 4.0"
+    attribution: "问答系统研究"
+    language: "zh"
+    author: "问答数据集构建团队"
+
+  - name: "chat_history"
+    category: "dialogue"
+    description: "中文聊天历史记录"
+    url: "https://example.com/data/chat_history.json"
+    format: "json"
+    size: 12582912
+    sha256: "n4o5p6q7r8s9..."
+    license: "CC BY-NC-SA 4.0"
+    attribution: "社交平台数据"
+    language: "zh"
+    author: "用户匿名化数据"
+
+# 分类统计信息
+category_info:
+  classical:
+    display_name: "古文"
+    priority: 1
+    description: "古典文学作品，包括诗词歌赋、文言文等"
+    default_ratio: 0.4
+    quality_weight: 1.0
+
+  modern:
+    display_name: "现代文"
+    priority: 2
+    description: "现代汉语文学作品和文章"
+    default_ratio: 0.3
+    quality_weight: 1.0
+
+  baike:
+    display_name: "百科"
+    priority: 3
+    description: "百科全书式的知识性内容"
+    default_ratio: 0.2
+    quality_weight: 1.0
+
+  dialogue:
+    display_name: "对话"
+    priority: 4
+    description: "对话形式的交互数据"
+    default_ratio: 0.1
+    quality_weight: 1.0
+
+# 下载配置
+download_settings:
+  max_workers: 3
+  timeout: 60
+  retry_times: 3
+  chunk_size: 8192
+  verify_ssl: true
+  user_agent: "LingmaoMoYun-DataDownloader/1.0"
+
+# 数据处理配置
+processing_settings:
+  min_text_length: 10
+  max_text_length: 4096
+  remove_html: true
+  remove_urls: true
+  remove_emails: true
+  normalize_whitespace: true
+  enable_deduplication: true
+  special_tokens:
+    cls: "[CLS]"
+    sep: "[SEP]"
+    mask: "[MASK]"
+    unk: "[UNK]"
+    pad: "[PAD]"
+    eod: "[EOD]"
+    eos: "[EOS]"
+    sop: "[SOP]"
+    eop: "[EOP]"
+
+# 数据集划分配置
+split_config:
+  train_ratio: 0.8
+  val_ratio: 0.1
+  test_ratio: 0.1
+  shuffle_seed: 42
+
+# 许可证说明
+licenses:
+  "Public Domain":
+    description: "公共领域作品，无版权限制"
+
+  "CC BY 4.0":
+    description: "署名 - 允许商业和非商业使用，需注明作者"
+    url: "https://creativecommons.org/licenses/by/4.0/"
+
+  "CC BY-SA 4.0":
+    description: "署名-相同方式共享"
+    url: "https://creativecommons.org/licenses/by-sa/4.0/"
+
+  "CC BY-NC 4.0":
+    description: "署名-非商业性使用"
+    url: "https://creativecommons.org/licenses/by-nc/4.0/"
+
+  "CC BY-NC-SA 4.0":
+    description: "署名-非商业性使用-相同方式共享"
+    url: "https://creativecommons.org/licenses/by-nc-sa/4.0/"

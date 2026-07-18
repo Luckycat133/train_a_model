@@ -1,0 +1,62 @@
+# Python编译缓存
+__pycache__/
+*.py[cod]
+*$py.class
+**/__pycache__/
+.cache/
+
+# 系统文件
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# 临时文件和日志
+temp/
+logs/
+temp_data/
+cleanup_temp/
+temp_corpus.txt
+*.corpus
+*.corpus.txt
+temp_*
+*.tmp
+*.bak
+*_backup_*
+test_output/
+
+# 数据集和收集目录 - 只保留目录结构
+dataset/*
+!dataset/.gitkeep
+collection/*
+!collection/.gitkeep
+
+# IDE配置
+.idea/
+.cursor/
+.vscode/
+
+# 虚拟环境
+venv/
+env/
+.env/
+
+# 模型权重和缓存（权重存放在外部存储，不进入 Git）
+*.pt
+*.pth
+*.ckpt
+model_weights/*
+!model_weights/README.md
+quick_runs/
+
+# 日志文件
+*.log
+logs/**/
+logs/train_model/*.log
+logs/**/*.log
+
+# Jupyter notebooks缓存
+.ipynb_checkpoints/
+
+# 大型词汇表和分词器文件
+tokenizer_backup_*.json
