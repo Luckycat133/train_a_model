@@ -1,4 +1,4 @@
-# Research Report: Latest LLM Architecture (2025-2026)
+# Research Report: LLM Architecture Landscape
 
 > Generated: 2026-04-05 | Scope: 2025 Q1 – 2026 Q1
 

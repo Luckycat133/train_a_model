@@ -60,3 +60,6 @@ logs/**/*.log
 
 # 大型词汇表和分词器文件
 tokenizer_backup_*.jsonquick_runs/
+quick_runs/
+backup/
+quick_runs/

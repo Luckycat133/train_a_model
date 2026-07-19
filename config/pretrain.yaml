@@ -1,6 +1,6 @@
 # Pretraining Configuration Template
 # Lingmao Moyun Project
-# 2025-2026 Best Practices Edition
+# Configuration Template
 
 experiment_type: pretrain
 experiment_name: pretrain_baseline
@@ -8,7 +8,7 @@ seed: 42
 version: "0.8.5"
 
 # Model Architecture Configuration
-# 2025-2026 Modern Transformer Architecture
+# Modern Transformer Architecture
 model:
   # Core dimensions
   d_model: 768              # Model hidden dimension (typical: 768-2048)
@@ -21,7 +21,7 @@ model:
   # Vocabulary
   vocab_size: 50000         # Token vocabulary size
   
-  # 2025-2026 Architecture Innovations
+  # Architecture Options
   num_kv_heads: null        # Key-Value heads for GQA (null = MHA, < nhead = GQA)
   head_dim: 64              # Per-head dimension (must divide d_model)
   
@@ -46,7 +46,7 @@ model:
   mode: modern               # modern (RoPE+SwiGLU) or legacy (sinusoidal+ReGLU)
 
 # Training Hyperparameters
-# 2025-2026 Best Practice Settings
+# Training Settings
 training:
   # Data configuration
   context_length: 512       # Input sequence length for training
@@ -70,7 +70,7 @@ training:
   # Regularization
   label_smoothing: 0.1      # Label smoothing factor
   
-  # 2025-2026 Performance Optimizations
+  # Performance Optimizations
   use_amp: true             # Enable Automatic Mixed Precision (AMP)
   amp_dtype: "bf16"         # AMP dtype: "bf16" (preferred) or "fp16"
   
@@ -152,4 +152,4 @@ tags:
   - pretrain
   - baseline
   - classical-chinese
-  - 2025-2026
+  - classical-chinese-experiment

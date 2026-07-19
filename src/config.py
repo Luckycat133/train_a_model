@@ -62,7 +62,7 @@ NUM_KV_HEADS = None  # None = MHA, < nhead = GQA (modern LLMs use GQA)
 HEAD_DIM = 64  # Standard head dimension for modern LLMs
 USE_CHECKPOINT = False  # Use activation checkpointing in legacy mode
 
-# ─── torch.compile() Settings (2025-2026 Performance Optimization) ──────────────
+# ─── torch.compile() Settings ────────────────────────────────────────────────
 USE_COMPILE = False  # Use torch.compile() for ~30% speedup on PyTorch 2.0+
 COMPILE_MODE = "reduce-overhead"  # "reduce-overhead" for training, "max-autotune" for inference
 COMPILE_BACKEND = "inductor"  # "inductor" is the default PyTorch 2.0 backend

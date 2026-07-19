@@ -198,7 +198,15 @@ class LMDataset(Dataset):
             batch = self.token_chunks[i : i + BATCH_LOAD_SIZE]
 
             if self.tokenizer is not None:
-                if hasattr(self.tokenizer, "batch_tokenize"):
+                if hasattr(self.tokenizer, "encode"):
+                    for chunk in batch:
+                        try:
+                            tokens = self.tokenizer.encode(chunk)
+                            if tokens and len(tokens) > 1:
+                                all_tokens.extend(tokens)
+                        except Exception as e:
+                            logger.warning(f"Tokenization error: {e}")
+                elif hasattr(self.tokenizer, "batch_tokenize"):
                     token_batches = self.tokenizer.batch_tokenize(batch)
                     for tokens in token_batches:
                         if tokens and len(tokens) > 1:

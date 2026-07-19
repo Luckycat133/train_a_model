@@ -93,7 +93,7 @@ class PositionalEncoding(nn.Module):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Modern Components (2024-2026 LLM architecture)
+# Modern Components
 # ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -634,7 +634,7 @@ class SimpleTransformer(nn.Module):
     Two modes available:
     - "legacy": Uses sinusoidal PE + PyTorch TransformerEncoderLayer
     - "modern": Uses RoPE + SwiGLU/GQA/MoE + Flash Attention (via PyTorch SDPA)
-      (2024-2026 best practice: modern mode is default for new models)
+      (modern mode is default for new models)
 
     Args:
         vocab_size: Size of the vocabulary.
@@ -727,7 +727,7 @@ class SimpleTransformer(nn.Module):
         self._init_parameters()
 
     def _init_parameters(self) -> None:
-        """Initialize model weights using modern best practices (2024-2026).
+        """Initialize model weights.
 
         Modern LLMs (LLaMA-3, Qwen3, DeepSeek-V3) use:
         - Normal distribution with std ≈ 0.02 for attention projections

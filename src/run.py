@@ -7,8 +7,6 @@ import argparse
 import shutil
 from pathlib import Path
 
-import yaml
-
 from src.config import (
     DEFAULT_ACCUMULATION_STEPS,
     DEFAULT_BATCH_SIZE,
@@ -152,6 +150,7 @@ def main() -> None:
 
     config_probe, _ = parser.parse_known_args()
     if config_probe.config:
+        import yaml
         with open(config_probe.config, encoding="utf-8") as f:
             config_overrides = yaml.safe_load(f) or {}
         valid_destinations = {action.dest for action in parser._actions}

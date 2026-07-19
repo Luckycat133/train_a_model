@@ -1,6 +1,6 @@
 # Reinforcement Learning (RL) Configuration Template
 # Lingmao Moyun Project
-# 2025-2026 Best Practices Edition
+# Configuration Template
 
 experiment_type: rl
 experiment_name: rl_baseline
@@ -19,7 +19,7 @@ model:
   max_len: 512             # Maximum sequence length
   vocab_size: 50000        # Token vocabulary size
 
-  # 2025-2026 Architecture Innovations
+  # Architecture Options
   num_kv_heads: null       # Key-Value heads for GQA
   head_dim: 64             # Per-head dimension
   use_weight_tying: true   # Tie input/output embeddings
@@ -42,7 +42,7 @@ model:
   mode: modern             # modern or legacy
 
 # Training Hyperparameters
-# 2025-2026 Best Practice Settings for RL
+# Training Settings for RL
 training:
   # Data configuration
   context_length: 256      # Context length for RL
@@ -66,7 +66,7 @@ training:
   # Regularization
   label_smoothing: 0.0     # No label smoothing for RL
 
-  # 2025-2026 Performance Optimizations
+  # Performance Optimizations
   use_amp: true            # Enable Automatic Mixed Precision (AMP)
   amp_dtype: "bf16"        # AMP dtype: "bf16" (preferred for stability)
 
@@ -94,7 +94,7 @@ dataset:
   data_format: jsonl
 
 # RL-Specific Configuration
-# 2025-2026 RL Training Best Practices
+# RL Training Configuration
 rl:
   # Model paths
   reward_model_path: model_weights/reward_model.pt  # Reward model checkpoint
@@ -115,7 +115,7 @@ rl:
   entropy_coef: 0.01     # Entropy bonus coefficient (encourages exploration)
   value_loss_coef: 0.5    # Value function loss weight
 
-  # 2025-2026 RL Optimizations
+  # RL Optimizations
   use_adaptive_kl: true   # Adaptive KL targeting (auto-adjust kl_coef)
   target_kl: 0.015        # Target KL for adaptive targeting
 
@@ -180,4 +180,4 @@ tags:
   - rl
   - ppo
   - reinforcement-learning
-  - 2025-2026
+  - reinforcement-learning-experiment

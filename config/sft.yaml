@@ -1,6 +1,6 @@
 # Supervised Fine-Tuning (SFT) Configuration Template
 # Lingmao Moyun Project
-# 2025-2026 Best Practices Edition
+# Configuration Template
 
 experiment_type: sft
 experiment_name: sft_baseline
@@ -19,7 +19,7 @@ model:
   max_len: 512              # Maximum sequence length
   vocab_size: 50000        # Token vocabulary size
   
-  # 2025-2026 Architecture Innovations
+  # Architecture Options
   num_kv_heads: null        # Key-Value heads for GQA (null = MHA)
   head_dim: 64              # Per-head dimension
   use_weight_tying: true    # Tie input/output embeddings
@@ -42,7 +42,7 @@ model:
   mode: modern               # modern or legacy
 
 # Training Hyperparameters
-# 2025-2026 Best Practice Settings for SFT
+# Training Settings for SFT
 training:
   # Data configuration
   context_length: 256       # Shorter context for instruction following (256-512)
@@ -66,7 +66,7 @@ training:
   # Regularization
   label_smoothing: 0.05     # Light label smoothing (0.05-0.1)
   
-  # 2025-2026 Performance Optimizations
+  # Performance Optimizations
   use_amp: true             # Enable Automatic Mixed Precision (AMP)
   amp_dtype: "bf16"         # AMP dtype: "bf16" (preferred)
   
@@ -145,4 +145,4 @@ tags:
   - sft
   - fine-tuning
   - instruction-following
-  - 2025-2026
+  - instruction-following-experiment

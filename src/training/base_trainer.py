@@ -1,6 +1,6 @@
 """Base trainer interface for the Lingmao Moyun training system.
 
-2025-2026 Best Practice: This module integrates HuggingFace Accelerate for
+This module integrates HuggingFace Accelerate for
 simplified distributed training. Key features:
 - Automatic multi-GPU/TPU handling via Accelerator
 - Mixed precision (bf16/fp16) with automatic device management
@@ -372,8 +372,7 @@ class BaseTrainer(ABC):
             use_accelerate: Use HuggingFace Accelerate for distributed training.
                 Default True. Set False for legacy manual device management.
 
-        2025-2026 Best Practice:
-            use_accelerate=True enables:
+        use_accelerate=True enables:
             - Automatic multi-GPU/TPU handling
             - Mixed precision without manual scaler management
             - Simplified gradient accumulation
@@ -464,8 +463,7 @@ class BaseTrainer(ABC):
     ) -> Dict[str, float]:
         """Execute a single training step.
 
-        2025-2026 Best Practice:
-            When use_accelerate=True:
+        When use_accelerate=True:
                 loss, metrics = self.compute_loss(batch)
                 accelerator.backward(loss)  # 自动处理混合精度和梯度缩放
                 accelerator.step(self.optimizer)
@@ -600,7 +598,7 @@ class BaseTrainer(ABC):
     def fit(self) -> nn.Module:
         """Main training loop with Accelerate integration.
 
-        2025-2026 Best Practice: When use_accelerate=True (default):
+        When use_accelerate=True (default):
             - 4-5 lines enable distributed training
             - accelerator.prepare() handles device placement
             - accelerator.backward(loss) for gradient scaling

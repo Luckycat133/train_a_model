@@ -265,12 +265,12 @@ def save_checkpoint(
         "best_loss": best_loss if best_loss is not None else float("inf"),
     }
 
-    torch.save(checkpoint, checkpoint_path, weights_only=True)
+    torch.save(checkpoint, checkpoint_path)
     logger.info(f"Checkpoint saved → {checkpoint_path}")
 
     if is_best:
         best_path = save_dir / "best_model.pt"
-        torch.save(checkpoint, best_path, weights_only=True)
+        torch.save(checkpoint, best_path)
         logger.info(f"Best model saved → {best_path}")
 
     return checkpoint_path
@@ -335,7 +335,7 @@ def evaluate_model(
 
             use_autocast = use_amp and device.type == "cuda"
             eval_dtype = amp_dtype if (use_autocast and amp_dtype) else None
-            with autocast(enabled=use_autocast, dtype=eval_dtype):
+            with autocast(device_type=device.type, enabled=use_autocast, dtype=eval_dtype):
                 outputs = model(input_ids)
                 loss = criterion(
                     outputs.view(-1, outputs.size(-1)), target_ids.view(-1)
@@ -515,7 +515,7 @@ def train_model(
         train_dataset,
         batch_size=batch_size,
         shuffle=True,
-        num_workers=4,  # Optimal worker count for modern systems
+        num_workers=0 if device.type == "cpu" else 4,  # 0 for CPU (Python 3.14+ compatibility)
         pin_memory=(device.type != "cpu"),
         drop_last=True,  # Added for stable batch processing
     )
@@ -533,7 +533,7 @@ def train_model(
             test_dataset,
             batch_size=batch_size,
             shuffle=False,
-            num_workers=4,  # Optimal worker count
+            num_workers=0 if device.type == "cpu" else 4,  # 0 for CPU (Python 3.14+ compatibility)
             pin_memory=(device.type != "cpu"),
         )
 
@@ -722,14 +722,17 @@ def train_model(
                 logger.warning(f"Skipping batch {step}: {e}")
                 continue
 
-            with autocast(enabled=(use_amp and device.type == "cuda"), dtype=amp_dtype):
+            with autocast(device_type=device.type, enabled=(use_amp and device.type == "cuda"), dtype=amp_dtype):
                 outputs, _, aux_loss = model(input_ids, return_aux_loss=True)
                 ce_loss = criterion(
                     outputs.view(-1, outputs.size(-1)), target_ids.view(-1)
                 )
                 loss = (ce_loss + aux_loss) / accumulation_steps
 
-            scaler.scale(loss).backward()
+            if scaler is not None:
+                scaler.scale(loss).backward()
+            else:
+                loss.backward()
 
             if (step + 1) % accumulation_steps == 0 or (step + 1) == len(
                 train_loader
@@ -763,7 +766,7 @@ def train_model(
             # Log system stats periodically
             if step % log_stats_interval == 0:
                 system_stats = log_system_stats()
-                stats["system_memory"].append(system_stats["memory"].percent)
+                stats["system_memory"].append(system_stats["memory"]["percent"])
                 if system_stats["gpu"]:
                     stats["gpu_usage"].append(system_stats["gpu"][0].get("utilization", 0))
 
