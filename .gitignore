@@ -59,4 +59,4 @@ logs/**/*.log
 .ipynb_checkpoints/
 
 # 大型词汇表和分词器文件
-tokenizer_backup_*.json
+tokenizer_backup_*.jsonquick_runs/

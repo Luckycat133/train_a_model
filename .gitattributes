@@ -1,0 +1,2 @@
+model_weights/usable_model/*.pt filter=lfs diff=lfs merge=lfs -text
+model_weights/usable_model_20ep/*.pt filter=lfs diff=lfs merge=lfs -text
