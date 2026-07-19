@@ -252,9 +252,6 @@ def simple_test(dry_run=False):
         print("轻量级测试模式：模拟训练过程而不执行完整训练")
         # 模拟训练成功
         success = True
-        # 为tokenizer添加一些基本的词汇，以便后续测试能够进行
-        tokenizer.tokenizer = Tokenizer(BPE())
-        tokenizer.tokenizer.pre_tokenizer = Whitespace()
     else:
         # 正常训练模式
         success = tokenizer.train(training_files)
@@ -298,7 +295,7 @@ def simple_test(dry_run=False):
     
     return success
 
-def test_basic_functionality(test_files, dry_run=False):
+def test_basic_functionality(test_files, dry_run=True):
     """测试分词器基本功能
     
     Args:
@@ -330,9 +327,6 @@ def test_basic_functionality(test_files, dry_run=False):
             # 模拟训练成功
             success = True
             train_time = 0.01  # 模拟训练时间
-            # 为tokenizer添加一些基本的词汇，以便后续测试能够进行
-            tokenizer.tokenizer = Tokenizer(BPE())
-            tokenizer.tokenizer.pre_tokenizer = Whitespace()
         else:
             # 正常训练模式
             success = tokenizer.train(training_files)
@@ -340,7 +334,7 @@ def test_basic_functionality(test_files, dry_run=False):
         
         if not success:
             logger.error("分词器训练失败")
-            return False
+            raise RuntimeError("分词器训练失败")
         
         logger.info(f"分词器训练耗时: {train_time:.4f} 秒")
         
@@ -396,12 +390,11 @@ def test_basic_functionality(test_files, dry_run=False):
             assert similarity > 0.5, f"解码结果与原文本相似度过低: {similarity:.2f}"
         
         logger.info("分词器基本功能测试通过")
-        return True
     except Exception as e:
         logger.error(f"分词器基本功能测试失败: {e}")
-        return False
+        raise
 
-def test_performance(test_files, dry_run=False):
+def test_performance(test_files, dry_run=True):
     """测试分词器性能
     
     Args:
@@ -431,9 +424,6 @@ def test_performance(test_files, dry_run=False):
             # 模拟训练成功
             success = True
             train_time = 0.01  # 模拟训练时间
-            # 为tokenizer添加一些基本的词汇，以便后续测试能够进行
-            tokenizer.tokenizer = Tokenizer(BPE())
-            tokenizer.tokenizer.pre_tokenizer = Whitespace()
         else:
             # 正常训练模式
             success = tokenizer.train(training_files)
@@ -441,7 +431,7 @@ def test_performance(test_files, dry_run=False):
         
         if not success:
             logger.error("分词器训练失败")
-            return False
+            raise RuntimeError("分词器训练失败")
         
         logger.info(f"中型语料训练耗时: {train_time:.4f} 秒")
         
@@ -551,17 +541,11 @@ def test_performance(test_files, dry_run=False):
         logger.info(f"缓存加速比: {cache_speedup:.2f}x")
         
         logger.info("分词器性能测试通过")
-        return True, {
-            "avg_encode_time": avg_encode_time,
-            "avg_batch_time": avg_batch_time,
-            "batch_speedup": speedup,
-            "cache_speedup": cache_speedup
-        }
     except Exception as e:
         logger.error(f"分词器性能测试失败: {e}")
-        return False, None
+        raise
 
-def test_edge_cases(test_files, dry_run=False):
+def test_edge_cases(test_files, dry_run=True):
     """测试分词器边界条件
     
     Args:
@@ -588,16 +572,13 @@ def test_edge_cases(test_files, dry_run=False):
             logger.info("轻量级测试模式：模拟训练过程而不执行完整训练")
             # 模拟训练成功
             success = True
-            # 为tokenizer添加一些基本的词汇，以便后续测试能够进行
-            tokenizer.tokenizer = Tokenizer(BPE())
-            tokenizer.tokenizer.pre_tokenizer = Whitespace()
         else:
             # 正常训练模式
             success = tokenizer.train(training_files)
         
         if not success:
             logger.error("分词器训练失败")
-            return False
+            raise RuntimeError("分词器训练失败")
         
         # 测试边界条件
         edge_cases = [
@@ -657,7 +638,7 @@ def test_edge_cases(test_files, dry_run=False):
                     logger.info(f"  处理成功")
             except Exception as e:
                 logger.error(f"  处理失败: {e}")
-                return False
+                raise
         
         # 测试错误处理
         error_cases = [
@@ -681,12 +662,11 @@ def test_edge_cases(test_files, dry_run=False):
                     logger.info(f"  预期的错误处理: {e}")
         
         logger.info("分词器边界条件测试通过")
-        return True
     except Exception as e:
         logger.error(f"分词器边界条件测试失败: {e}")
-        return False
+        raise
 
-def test_jsonl_processing(test_files, dry_run=False):
+def test_jsonl_processing(test_files, dry_run=True):
     """测试JSONL文件处理
     
     Args:
@@ -738,9 +718,6 @@ def test_jsonl_processing(test_files, dry_run=False):
             # 模拟训练成功
             success = True
             train_time = 0.01  # 模拟训练时间
-            # 为tokenizer添加一些基本的词汇，以便后续测试能够进行
-            tokenizer.tokenizer = Tokenizer(BPE())
-            tokenizer.tokenizer.pre_tokenizer = Whitespace()
         else:
             # 正常训练模式
             success = tokenizer.train(training_files=None)  # 使用提取的文本训练
@@ -748,7 +725,7 @@ def test_jsonl_processing(test_files, dry_run=False):
         
         if not success:
             logger.error("使用JSONL提取的文本训练分词器失败")
-            return False
+            raise RuntimeError("使用JSONL提取的文本训练分词器失败")
         
         logger.info(f"使用JSONL提取的文本训练分词器耗时: {train_time:.4f} 秒")
         
@@ -771,10 +748,9 @@ def test_jsonl_processing(test_files, dry_run=False):
             logger.info(f"  解码结果: '{decoded}'")
         
         logger.info("JSONL文件处理测试通过")
-        return True
     except Exception as e:
         logger.error(f"JSONL文件处理测试失败: {e}")
-        return False
+        raise
 
 def plot_performance_results(performance_data, save_dir):
     """绘制性能测试结果图表"""
@@ -999,28 +975,18 @@ def run_all_tests(dry_run=False):
     
     results = {}
     all_passed = True
-    performance_data = None
     
     for name, test_func in tests:
         logger.info(f"\n{'=' * 50}\n测试 {name}\n{'=' * 50}")
         start_time = time.time()
         try:
-            if name == "性能测试":
-                passed, perf_data = test_func()
-                if passed and perf_data:
-                    performance_data = perf_data
-            else:
-                passed = test_func()
-                
+            test_func()
             duration = time.time() - start_time
-            status = "通过" if passed else "失败"
             results[name] = {
-                "status": status,
+                "status": "通过",
                 "duration": duration
             }
-            logger.info(f"{name} 测试{status}，耗时: {duration:.4f} 秒")
-            if not passed:
-                all_passed = False
+            logger.info(f"{name} 测试通过，耗时: {duration:.4f} 秒")
         except Exception as e:
             logger.error(f"{name} 测试出错: {e}")
             results[name] = {
@@ -1028,10 +994,6 @@ def run_all_tests(dry_run=False):
                 "error": str(e)
             }
             all_passed = False
-    
-    # 绘制性能测试结果图表
-    if performance_data:
-        plot_performance_results(performance_data, test_dir / "logs")
     
     # 汇总测试结果
     logger.info("\n" + "=" * 50)

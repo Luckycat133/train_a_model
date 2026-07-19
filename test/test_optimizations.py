@@ -60,8 +60,6 @@ def test_classical_tokenizer():
     cached_time = time.time() - start_time
     cache_speedup = single_time / cached_time if cached_time > 0 else float('inf')
     logger.info(f"缓存命中分词耗时: {cached_time:.6f} 秒, 加速比: {cache_speedup:.2f}x")
-    
-    return True
 
 def test_memory_pool():
     """测试优化后的内存池性能"""
@@ -90,8 +88,6 @@ def test_memory_pool():
     # 获取统计信息
     stats = memory_pool.get_stats()
     logger.info(f"内存池统计信息: {stats}")
-    
-    return True
 
 def test_lm_dataset():
     """测试优化后的数据集加载性能"""
@@ -133,8 +129,6 @@ def test_lm_dataset():
     # 内存使用情况
     peak_memory = dataset.peak_memory_mb if hasattr(dataset, 'peak_memory_mb') else "未知"
     logger.info(f"数据集峰值内存使用: {peak_memory}MB")
-    
-    return True
 
 def run_all_tests():
     """运行所有性能测试"""
@@ -153,16 +147,13 @@ def run_all_tests():
         logger.info(f"\n{'=' * 50}\n测试 {name}\n{'=' * 50}")
         start_time = time.time()
         try:
-            passed = test_func()
+            test_func()
             duration = time.time() - start_time
-            status = "通过" if passed else "失败"
             results[name] = {
-                "status": status,
+                "status": "通过",
                 "duration": duration
             }
-            logger.info(f"{name} 测试{status}，耗时: {duration:.4f} 秒")
-            if not passed:
-                all_passed = False
+            logger.info(f"{name} 测试通过，耗时: {duration:.4f} 秒")
         except Exception as e:
             logger.error(f"{name} 测试出错: {e}")
             results[name] = {

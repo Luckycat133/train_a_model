@@ -119,10 +119,9 @@ def test_lm_dataset(test_dir):
         summarize_performance_results(results)
         
         logger.info("语言模型数据集功能测试通过")
-        return True
     except Exception as e:
         logger.error(f"语言模型数据集功能测试失败: {e}")
-        return False
+        raise
 
 def test_utility_functions():
     """测试工具函数"""
@@ -148,10 +147,9 @@ def test_utility_functions():
             assert formatted == expected, f"时间格式化错误: {formatted} != {expected}"
         
         logger.info("工具函数测试通过")
-        return True
     except Exception as e:
         logger.error(f"工具函数测试失败: {e}")
-        return False
+        raise
 
 def test_stats_plotting(test_dir):
     """测试统计图表绘制功能"""
@@ -180,10 +178,9 @@ def test_stats_plotting(test_dir):
         
         logger.info(f"生成的图表文件: {[f.name for f in plot_files]}")
         logger.info("统计图表绘制功能测试通过")
-        return True
     except Exception as e:
         logger.error(f"统计图表绘制功能测试失败: {e}")
-        return False
+        raise
 
 def collect_performance_data(test_dir):
     """收集性能数据 - 复用 test_lm_dataset 的测试逻辑"""
@@ -285,16 +282,14 @@ def run_all_tests():
         logger.info(f"\n{'=' * 50}\n测试 {name}\n{'=' * 50}")
         start_time = time.time()
         try:
-            passed = test_func()
+            test_func()
+            passed = True
             duration = time.time() - start_time
-            status = "通过" if passed else "失败"
             results[name] = {
-                "status": status,
+                "status": "通过",
                 "duration": duration
             }
-            logger.info(f"{name} 测试{status}，耗时: {duration:.4f} 秒")
-            if not passed:
-                all_passed = False
+            logger.info(f"{name} 测试通过，耗时: {duration:.4f} 秒")
         except Exception as e:
             logger.error(f"{name} 测试出错: {e}")
             results[name] = {

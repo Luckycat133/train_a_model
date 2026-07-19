@@ -287,7 +287,9 @@ class MoELayer(nn.Module):
         token_load = router_probs.mean(dim=0)  # [num_experts]
         if self.aux_loss_coef > 0 and self.training:
             # Fraction of routing weight assigned to each expert (after top-k)
-            weight_load = weights.sum(dim=0) / self.top_k  # [num_experts]
+            weight_load = torch.zeros(self.num_experts, device=x.device, dtype=x.dtype)
+            weight_load.scatter_add_(0, indices.view(-1), weights.view(-1))
+            weight_load = weight_load / num_tokens  # [num_experts] — average weight per expert
             # Load-balancing loss: penalize unequal distribution
             # Loss = sum(load_factor^2) encourages all experts to have similar load
             aux_loss = (token_load * weight_load).sum() * self.num_experts
