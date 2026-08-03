@@ -1,12 +1,16 @@
+# This project is Python-only (requirements.txt at the root and under api/);
+# there is no package.json, so the npm ecosystem failed on every scheduled run.
 version: 2
 updates:
-  - package-ecosystem: "npm"
-    directory: "/"
+  - package-ecosystem: "pip"
+    directories:
+      - "/"
+      - "/api"
     schedule:
       interval: "monthly"
     open-pull-requests-limit: 5
     groups:
-      all-npm:
+      all-pip:
         patterns:
           - "*"
   - package-ecosystem: "github-actions"
