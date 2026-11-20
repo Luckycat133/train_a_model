@@ -6,6 +6,7 @@ import os
 import shutil
 import tempfile
 import time
+from numbers import Integral
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Union
 
@@ -23,7 +24,6 @@ except Exception:  # pragma: no cover - fallback for test environments
         pass
 
 from src.config import (
-    BATCH_LOAD_SIZE,
     DEFAULT_CONTEXT_LENGTH,
     DEFAULT_MAX_CHUNKS,
     DEFAULT_STRIDE,
@@ -59,8 +59,8 @@ class LMDataset(Dataset):
     Args:
         data_path: Path to a JSONL file or a directory containing JSONL files.
         context_length: Context window size in tokens.
-        tokenizer: Tokenizer instance (must implement ``tokenize`` and/or
-            ``batch_tokenize``). If ``None``, character-level encoding is used.
+        tokenizer: Tokenizer implementing ``encode(text)`` with integer IDs.
+            When explicitly ``None``, the legacy character-ID path is used.
         stride: Sliding window step size.
         max_chunks: Maximum number of text chunks to load (memory guard).
     """
@@ -193,30 +193,24 @@ class LMDataset(Dataset):
 
         all_tokens: List[int] = []
 
-        # Batch tokenization
-        for i in range(0, len(self.token_chunks), BATCH_LOAD_SIZE):
-            batch = self.token_chunks[i : i + BATCH_LOAD_SIZE]
-
-            if self.tokenizer is not None:
-                if hasattr(self.tokenizer, "batch_tokenize"):
-                    token_batches = self.tokenizer.batch_tokenize(batch)
-                    for tokens in token_batches:
-                        if tokens and len(tokens) > 1:
-                            all_tokens.extend(tokens)
-                else:
-                    for chunk in batch:
-                        try:
-                            tokens = self.tokenizer.tokenize(chunk)
-                            if tokens and len(tokens) > 1:
-                                all_tokens.extend(tokens)
-                        except Exception as e:
-                            logger.warning(f"Tokenization error: {e}")
-            else:
-                # Character-level fallback
-                for chunk in batch:
-                    char_ids = [ord(c) % 30000 for c in chunk]
-                    if char_ids:
-                        all_tokens.extend(char_ids)
+        if self.tokenizer is not None:
+            encode = getattr(self.tokenizer, "encode", None)
+            if not callable(encode):
+                raise TypeError("Tokenizer must provide encode(text) returning integer token IDs")
+            max_token_id = np.iinfo(np.int32).max
+            for chunk in self.token_chunks:
+                for token_id in encode(chunk):
+                    if (
+                        isinstance(token_id, bool)
+                        or not isinstance(token_id, Integral)
+                        or not 0 <= token_id <= max_token_id
+                    ):
+                        raise ValueError("Tokenizer encode(text) must return integer token IDs in int32 range")
+                    all_tokens.append(int(token_id))
+        else:
+            # Retain explicit legacy use; the primary trainer requires a tokenizer.
+            for chunk in self.token_chunks:
+                all_tokens.extend(ord(char) % 30000 for char in chunk)
 
         if not all_tokens:
             logger.warning("No tokens generated – skipping sample creation")
