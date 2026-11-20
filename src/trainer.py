@@ -59,7 +59,6 @@ from src.config import (
     DEFAULT_MAX_GRAD_NORM,
     DEFAULT_NHEAD,
     DEFAULT_NUM_LAYERS,
-    DEFAULT_VOCAB_SIZE,
     DEFAULT_WEIGHT_DECAY,
     FORCE_EXIT_DELAY_SECONDS,
     GRADIENT_CHECKPOINTING_CHUNKS,
@@ -486,22 +485,12 @@ def train_model(
 
     # ── Tokenizer ───────────────────────────────────────────────────────────
     logger.info(f"Loading tokenizer from {tokenizer_path}")
-    vocab_size = DEFAULT_VOCAB_SIZE
+    from tokenizer import ClassicalTokenizer
 
-    if os.path.exists(tokenizer_path):
-        try:
-            from tokenizer import ClassicalTokenizer
-
-            tok = ClassicalTokenizer()
-            tok.load(tokenizer_path)
-            vocab_size = len(tok.token_to_id)
-            logger.info(f"Tokenizer loaded, vocab size: {vocab_size}")
-        except Exception as e:
-            logger.warning(f"Tokenizer load failed ({e}), using default char-level")
-            tok = None
-    else:
-        logger.warning(f"Tokenizer not found at {tokenizer_path}, using char-level")
-        tok = None
+    tok = ClassicalTokenizer()
+    tok.load(tokenizer_path)
+    vocab_size = len(tok.token_to_id)
+    logger.info(f"Tokenizer loaded, vocab size: {vocab_size}")
 
     # ── Dataset ──────────────────────────────────────────────────────────────
     logger.info(f"Loading training data: {train_file}")
