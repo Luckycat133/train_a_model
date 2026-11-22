@@ -29,6 +29,23 @@ from .base_trainer import BaseTrainer, TrainingConfig
 logger = get_logger("LingmaoMoyun.SFT")
 
 
+def _instruction_prompt(template, instruction, input_text):
+    return template.format(instruction=instruction, input=input_text or "N/A")
+
+
+def _response_prefix(prompt, response_template):
+    return prompt + response_template
+
+
+def _special_id(tokenizer, modern, legacy):
+    vocab = tokenizer.token_to_id
+    if modern in vocab:
+        return vocab[modern]
+    if legacy in vocab:
+        return vocab[legacy]
+    raise ValueError(f"SFT tokenizer missing {modern} or {legacy}")
+
+
 @dataclass
 class SFTConfig(TrainingConfig):
     accumulation_steps: int = 1
@@ -60,11 +77,8 @@ class InstructionResponseDataset(Dataset):
         ignore_token_id: int = -100,
     ):
         self.tokenizer = tokenizer
-        try:
-            self.pad_id = tokenizer.token_to_id["<pad>"] if "<pad>" in tokenizer.token_to_id else tokenizer.token_to_id["[PAD]"]
-            self.eos_id = tokenizer.token_to_id["<eos>"] if "<eos>" in tokenizer.token_to_id else tokenizer.token_to_id["[SEP]"]
-        except KeyError as exc:
-            raise ValueError("SFT tokenizer must have padding and end-of-response IDs") from exc
+        self.pad_id = _special_id(tokenizer, "<pad>", "[PAD]")
+        self.eos_id = _special_id(tokenizer, "<eos>", "[SEP]")
         if max_length < 3 or min(max_prompt_length, max_response_length) < 1:
             raise ValueError("SFT needs context for a prompt, an answer and EOS")
         self.max_length = max_length
@@ -112,10 +126,7 @@ class InstructionResponseDataset(Dataset):
         instruction = item.get("instruction", "")
         input_text = item.get("input", "")
         output = item.get("output", "")
-        prompt = self.prompt_template.format(
-            instruction=instruction,
-            input=input_text if input_text else "N/A"
-        )
+        prompt = _instruction_prompt(self.prompt_template, instruction, input_text)
         return {"prompt": prompt, "response": output, "prompt_ids": None, "response_ids": None}
 
     def _parse_completion_format(self, item: Dict[str, Any]) -> Dict[str, Any]:
@@ -136,7 +147,7 @@ class InstructionResponseDataset(Dataset):
     def _tokenize_sample(self, sample: Dict[str, Any]) -> Dict[str, Any]:
         if sample["prompt_ids"] is not None:
             return sample
-        prompt = self.tokenizer.encode(sample["prompt"] + self.response_template)
+        prompt = self.tokenizer.encode(_response_prefix(sample["prompt"], self.response_template))
         response = self.tokenizer.encode(sample["response"])
         if not sample["response"].strip() or not prompt or not response:
             raise ValueError("SFT sample must have a prompt and nonempty response")
@@ -199,6 +210,8 @@ class SFTTrainer(BaseTrainer):
             raise ValueError("Experimental SFT supervises response tokens only")
         if config.mode != "modern" or config.use_sliding_window or config.use_gradient_checkpointing or config.compile_model:
             raise ValueError("Experimental SFT requires eager modern attention without sliding window or checkpointing")
+        if model is not None:
+            self._prepare_model(model)
         super().__init__(
             config=config, model=model, train_loader=train_loader, eval_loader=eval_loader,
             device=torch.device("cpu"), use_accelerate=False,
@@ -206,6 +219,19 @@ class SFTTrainer(BaseTrainer):
 
         self.tokenizer = tokenizer
         self.ignore_token_id = config.ignore_token_id
+
+    @staticmethod
+    def _prepare_model(model: nn.Module) -> nn.Module:
+        from src.model import SimpleTransformer
+
+        if not isinstance(model, SimpleTransformer) or model.mode != "modern":
+            raise ValueError("Experimental SFT requires a modern SimpleTransformer")
+        for block in model.transformer_blocks:
+            if block.attention.use_sliding_window:
+                raise ValueError("Sliding-window attention is not validated for SFT")
+            # Set during construction/loading, not as a side effect of computing a loss.
+            block.attention.use_flash_attention = False
+        return model
 
     def build_model(self) -> nn.Module:
         from src.model import SimpleTransformer
@@ -234,7 +260,7 @@ class SFTTrainer(BaseTrainer):
         )
 
         logger.info(f"SFT model built with {sum(p.numel() for p in model.parameters()):,} parameters")
-        return model
+        return self._prepare_model(model)
 
     def fit(self) -> nn.Module:
         if self.model is None:
@@ -248,15 +274,6 @@ class SFTTrainer(BaseTrainer):
     ) -> Tuple[torch.Tensor, Dict[str, float]]:
         input_ids = batch["input_ids"]
         labels = batch["labels"]
-        from src.model import SimpleTransformer
-
-        if not isinstance(self.model, SimpleTransformer) or self.model.mode != "modern":
-            raise ValueError("Experimental SFT requires a modern SimpleTransformer")
-        for block in self.model.transformer_blocks:
-            if block.attention.use_sliding_window:
-                raise ValueError("Sliding-window attention is not validated for SFT")
-            # The existing eager attention implements temporal causality without SDPA.
-            block.attention.use_flash_attention = False
         mask = batch["attention_mask"][:, None, None, :] == 0
         additive = torch.zeros(mask.shape, device=input_ids.device, dtype=torch.float32)
         additive = additive.masked_fill(mask, float("-inf"))
@@ -391,54 +408,40 @@ class SFTTrainer(BaseTrainer):
         if self.model is None or self.tokenizer is None:
             raise RuntimeError("Model and tokenizer must be initialized")
 
-        self.model.eval()
-
-        prompt = self.config.prompt_template.format(
-            instruction=instruction,
-            input=input_text if input_text else "N/A"
+        if max_new_tokens < 0 or temperature <= 0 or not 0 < top_p <= 1:
+            raise ValueError("Invalid generation token budget, temperature, or top_p")
+        if max_new_tokens == 0:
+            return ""
+        context = min(self.config.context_length, self.model.max_len)
+        prompt = _response_prefix(
+            _instruction_prompt(self.config.prompt_template, instruction, input_text),
+            self.config.response_template,
         )
+        input_ids = self.tokenizer.encode(prompt)[-min(self.config.max_prompt_length, context):]
+        eos_id = _special_id(self.tokenizer, "<eos>", "[SEP]")
+        generated = []
 
-        input_ids = self.tokenizer.encode(prompt)
-        input_tensor = torch.tensor([input_ids], dtype=torch.long, device=self.device)
+        was_training = self.model.training
+        self.model.eval()
+        try:
+            with torch.no_grad():
+                for _ in range(max_new_tokens):
+                    token_ids = (input_ids + generated)[-context:]
+                    batch = torch.tensor([token_ids], dtype=torch.long, device=self.device)
+                    logits = self.model(batch)[0, -1] / temperature
+                    probs = torch.softmax(logits, dim=-1)
+                    if top_p < 1.0:
+                        sorted_probs, sorted_indices = torch.sort(probs, descending=True)
+                        cut = sorted_probs.cumsum(-1) - sorted_probs >= top_p
+                        probs[sorted_indices[cut]] = 0
+                    token = torch.multinomial(probs, num_samples=1).item()
+                    if token == eos_id:
+                        break
+                    generated.append(token)
+        finally:
+            self.model.train(was_training)
 
-        with torch.no_grad():
-            outputs = self.model(input_tensor)
-            logits = outputs[0]
-
-            logits = logits[-1] / temperature
-            probs = torch.softmax(logits, dim=-1)
-
-            if top_p < 1.0:
-                sorted_probs, sorted_indices = torch.sort(probs, descending=True)
-                cumulative_probs = torch.cumsum(sorted_probs, dim=-1)
-                sorted_indices_to_remove = cumulative_probs > top_p
-                sorted_indices_to_remove[1:] = sorted_indices_to_remove[:-1].clone()
-                sorted_indices_to_remove[0] = 0
-                indices_to_remove = sorted_indices_to_remove.scatter(0, sorted_indices, sorted_indices_to_remove)
-                probs[indices_to_remove] = 0
-                probs = probs / probs.sum()
-
-            next_token = torch.multinomial(probs, num_samples=1)
-
-            generated = input_tensor.tolist()[0]
-            generated.append(next_token.item())
-
-            for _ in range(max_new_tokens - 1):
-                output_tensor = torch.tensor([generated[-self.config.context_length:]],
-                                            dtype=torch.long, device=self.device)
-                outputs = self.model(output_tensor)
-                logits = outputs[0][-1] / temperature
-                probs = torch.softmax(logits, dim=-1)
-                next_token = torch.multinomial(probs, num_samples=1)
-                generated.append(next_token.item())
-                if next_token == self.tokenizer.eos_id:
-                    break
-
-        response_ids = generated[len(input_ids):]
-        response = self.tokenizer.decode(response_ids)
-
-        self.model.train()
-        return response
+        return self.tokenizer.decode(generated)
 
 
 def create_sft_trainer(

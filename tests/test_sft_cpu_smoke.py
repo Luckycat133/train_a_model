@@ -82,6 +82,19 @@ def test_sft_cpu_finetunes_from_real_checkpoint_and_reloads(tmp_path):
     assert any(not torch.equal(value, initial[key]) for key, value in state["model_state_dict"].items())
     clone = SFTTrainer.from_pretrained(str(output), config=config)
     assert all(torch.equal(value, state["model_state_dict"][key]) for key, value in clone.model.state_dict().items())
+    with torch.no_grad():
+        torch.testing.assert_close(trainer.model.eval()(unpadded), clone.model.eval()(unpadded), rtol=0, atol=0)
+
+    # Exercise actual generation. The hook records the first prompt without changing the model.
+    observed_ids = []
+    hook = clone.model.register_forward_pre_hook(lambda _model, args: observed_ids.append(args[0].clone()))
+    try:
+        assert isinstance(clone.generate_response("問月何時明", max_new_tokens=2), str)
+    finally:
+        hook.remove()
+    item = dataset[1]
+    assert torch.equal(observed_ids[0][0], item["input_ids"][:item["prompt_length"]])
+    assert not clone.model.training
 
 
 def test_sft_rejects_empty_answer_before_an_update(tmp_path):
