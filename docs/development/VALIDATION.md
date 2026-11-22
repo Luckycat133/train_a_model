@@ -136,11 +136,17 @@ bundled small JSONL, not a mock or full pretraining.
 - MLA: `python -m pytest -q test/test_arch_upgrades.py` exits 2 during
   collection because `MultiHeadLatentAttention` is absent. G2 MLA and future
   performance comparisons remain blocked; this is not an MLA implementation.
-- SFT: direct CPU construction with the real model fails because
-  `BaseTrainer.__init__` rejects `accelerator`. Fetching one sample with
-  the actual tokenizer independently fails because `encode` rejects
-  `max_length`. G4 does not pass; no SFT quality or training claim.
+- Baseline SFT rejected the real constructor/tokenizer API. The bounded
+  `python -m pytest -q tests/test_sft_cpu_smoke.py` gate now trains from the real
+  CPU pretraining fixture checkpoint (exact initial weight equality), performs
+  two AdamW updates over 11 response/EOS targets at mean batch loss 10.3775,
+  and saves and reloads the updated weights. Three hand-authored examples
+  exercise completion, instruction and multi-turn response formats, batches of
+  1/2/3, prompt and padding masking, one shift, future-token isolation, and
+  empty-answer refusal. It is CPU/eager causal-only, with one batch per update.
+  The tiny fixture is not curated, held-out, or evidence of model quality.
 
-The new CI gate repeats the quick CPU command and exact-resume regression.
-G2 attention/cache equivalence, G4 SFT, G5 GPU/multiprocess and G6 model
-quality are outside this CPU smoke result. Checkpoint weights stay out of Git.
+
+CI repeats the quick CPU, exact-resume and checkpoint-loaded SFT tests.
+Full G2 attention/cache equivalence, non-CPU/distributed SFT, G5 GPU
+and G6 model quality remain outside this result. Checkpoint weights stay out of Git.

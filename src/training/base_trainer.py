@@ -283,11 +283,13 @@ class CheckpointManager:
         if extra_state:
             checkpoint.update(extra_state)
 
-        torch.save(checkpoint, path, weights_only=True)
+        from src.trainer import _atomic_torch_save
+
+        _atomic_torch_save(checkpoint, path)
 
         if is_best:
             best_path = self.save_dir / "best_model.pt"
-            torch.save(checkpoint, best_path, weights_only=True)
+            _atomic_torch_save(checkpoint, best_path)
 
         return path
 
