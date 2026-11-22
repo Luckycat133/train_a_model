@@ -1,10 +1,11 @@
-"""Supervised Fine-Tuning (SFT) trainer using Accelerate."""
+"""Experimental supervised fine-tuning on the single-process CPU path."""
 
 from __future__ import annotations
 
 import json
 import os
 from dataclasses import dataclass
+from functools import partial
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 try:
@@ -28,8 +29,26 @@ from .base_trainer import BaseTrainer, TrainingConfig
 logger = get_logger("LingmaoMoyun.SFT")
 
 
+def _instruction_prompt(template, instruction, input_text):
+    return template.format(instruction=instruction, input=input_text or "N/A")
+
+
+def _response_prefix(prompt, response_template):
+    return prompt + response_template
+
+
+def _special_id(tokenizer, modern, legacy):
+    vocab = tokenizer.token_to_id
+    if modern in vocab:
+        return vocab[modern]
+    if legacy in vocab:
+        return vocab[legacy]
+    raise ValueError(f"SFT tokenizer missing {modern} or {legacy}")
+
+
 @dataclass
 class SFTConfig(TrainingConfig):
+    accumulation_steps: int = 1
     response_loss_only: bool = True
     mask_prompt_tokens: bool = True
     max_prompt_length: int = 512
@@ -58,6 +77,10 @@ class InstructionResponseDataset(Dataset):
         ignore_token_id: int = -100,
     ):
         self.tokenizer = tokenizer
+        self.pad_id = _special_id(tokenizer, "<pad>", "[PAD]")
+        self.eos_id = _special_id(tokenizer, "<eos>", "[SEP]")
+        if max_length < 3 or min(max_prompt_length, max_response_length) < 1:
+            raise ValueError("SFT needs context for a prompt, an answer and EOS")
         self.max_length = max_length
         self.max_prompt_length = max_prompt_length
         self.max_response_length = max_response_length
@@ -67,6 +90,8 @@ class InstructionResponseDataset(Dataset):
         self.ignore_token_id = ignore_token_id
 
         self.samples = self._load_data(data_path)
+        if not self.samples:
+            raise ValueError("SFT dataset has no supported prompt/response samples")
         logger.info(f"Loaded {len(self.samples)} instruction-response samples")
 
     def _load_data(self, data_path: str) -> List[Dict[str, Any]]:
@@ -101,10 +126,7 @@ class InstructionResponseDataset(Dataset):
         instruction = item.get("instruction", "")
         input_text = item.get("input", "")
         output = item.get("output", "")
-        prompt = self.prompt_template.format(
-            instruction=instruction,
-            input=input_text if input_text else "N/A"
-        )
+        prompt = _instruction_prompt(self.prompt_template, instruction, input_text)
         return {"prompt": prompt, "response": output, "prompt_ids": None, "response_ids": None}
 
     def _parse_completion_format(self, item: Dict[str, Any]) -> Dict[str, Any]:
@@ -112,30 +134,30 @@ class InstructionResponseDataset(Dataset):
                 "prompt_ids": None, "response_ids": None}
 
     def _parse_chat_format(self, item: Dict[str, Any]) -> Dict[str, Any]:
-        messages = item.get("messages", [])
-        prompt_parts, response = [], ""
-
-        for msg in messages:
-            role = msg.get("role", "user")
-            content = msg.get("content", "")
-            if role == "user":
-                prompt_parts.append(f"### Human: {content}\n\n")
-            elif role == "assistant":
-                if not response:
-                    response = content
-                prompt_parts.append(f"### Assistant: {content}\n\n")
-
-        return {"prompt": "".join(prompt_parts), "response": response,
+        messages = item["messages"]
+        if not messages or messages[-1].get("role") != "assistant":
+            raise ValueError("SFT chat must end with the assistant response being supervised")
+        if any(msg.get("role") not in {"system", "user", "assistant"} or not isinstance(msg.get("content"), str)
+               for msg in messages):
+            raise ValueError("SFT chat only supports textual system, user and assistant messages")
+        prompt = "".join(f"### {msg['role']}: {msg['content']}\n\n" for msg in messages[:-1])
+        return {"prompt": prompt, "response": messages[-1]["content"],
                 "prompt_ids": None, "response_ids": None}
 
     def _tokenize_sample(self, sample: Dict[str, Any]) -> Dict[str, Any]:
-        if sample.get("prompt_ids") is not None:
+        if sample["prompt_ids"] is not None:
             return sample
-
-        sample["prompt_ids"] = self.tokenizer.encode(
-            sample["prompt"], max_length=self.max_prompt_length, truncation=True)
-        sample["response_ids"] = self.tokenizer.encode(
-            sample["response"], max_length=self.max_response_length, truncation=self.truncate_response)
+        prompt = self.tokenizer.encode(_response_prefix(sample["prompt"], self.response_template))
+        response = self.tokenizer.encode(sample["response"])
+        if not sample["response"].strip() or not prompt or not response:
+            raise ValueError("SFT sample must have a prompt and nonempty response")
+        answer_limit = min(self.max_response_length, self.max_length - 2)
+        if not self.truncate_response and len(response) > answer_limit:
+            raise ValueError("SFT response exceeds the available token budget")
+        response = response[:answer_limit] + [self.eos_id]
+        prompt_budget = min(self.max_prompt_length, self.max_length - len(response))
+        sample["prompt_ids"] = prompt[-prompt_budget:]
+        sample["response_ids"] = response
         return sample
 
     def __len__(self) -> int:
@@ -148,16 +170,21 @@ class InstructionResponseDataset(Dataset):
         input_ids = prompt_ids + response_ids
         labels = [self.ignore_token_id] * len(prompt_ids) + response_ids
 
-        if len(input_ids) > self.max_length:
-            input_ids = input_ids[:self.max_length]
-            labels = labels[:self.max_length]
-
         return {
             "input_ids": torch.tensor(input_ids, dtype=torch.long),
             "labels": torch.tensor(labels, dtype=torch.long),
             "attention_mask": torch.tensor([1] * len(input_ids), dtype=torch.long),
             "prompt_length": len(prompt_ids),
         }
+
+
+def _collate_sft(samples, *, pad_id: int, ignore_id: int):
+    items = {}
+    for key, value in (("input_ids", pad_id), ("labels", ignore_id), ("attention_mask", 0)):
+        items[key] = torch.nn.utils.rnn.pad_sequence(
+            [sample[key] for sample in samples], batch_first=True, padding_value=value,
+        )
+    return items
 
 
 class SFTTrainer(BaseTrainer):
@@ -170,20 +197,41 @@ class SFTTrainer(BaseTrainer):
         eval_loader: Optional[DataLoader] = None,
         accelerator: Optional[Any] = None,
         tokenizer: Optional[Any] = None,
+        device: Optional[torch.device] = None,
     ):
         if config is None:
             config = SFTConfig()
 
+        if accelerator is not None or device not in (None, torch.device("cpu")):
+            raise NotImplementedError("Experimental SFT supports only single-process CPU")
+        if config.accumulation_steps != 1:
+            raise ValueError("Experimental SFT currently requires one batch per optimizer update")
+        if not (config.response_loss_only and config.mask_prompt_tokens):
+            raise ValueError("Experimental SFT supervises response tokens only")
+        if config.mode != "modern" or config.use_sliding_window or config.use_gradient_checkpointing or config.compile_model:
+            raise ValueError("Experimental SFT requires eager modern attention without sliding window or checkpointing")
+        if model is not None:
+            self._prepare_model(model)
         super().__init__(
-            config=config,
-            model=model,
-            train_loader=train_loader,
-            eval_loader=eval_loader,
-            accelerator=accelerator,
+            config=config, model=model, train_loader=train_loader, eval_loader=eval_loader,
+            device=torch.device("cpu"), use_accelerate=False,
         )
 
         self.tokenizer = tokenizer
         self.ignore_token_id = config.ignore_token_id
+
+    @staticmethod
+    def _prepare_model(model: nn.Module) -> nn.Module:
+        from src.model import SimpleTransformer
+
+        if not isinstance(model, SimpleTransformer) or model.mode != "modern":
+            raise ValueError("Experimental SFT requires a modern SimpleTransformer")
+        for block in model.transformer_blocks:
+            if block.attention.use_sliding_window:
+                raise ValueError("Sliding-window attention is not validated for SFT")
+            # Set during construction/loading, not as a side effect of computing a loss.
+            block.attention.use_flash_attention = False
+        return model
 
     def build_model(self) -> nn.Module:
         from src.model import SimpleTransformer
@@ -192,19 +240,14 @@ class SFTTrainer(BaseTrainer):
             return self.model
 
         cfg = self.config
-        vocab_size = cfg.vocab_size
+        if self.tokenizer is None:
+            from tokenizer import ClassicalTokenizer
 
-        if os.path.exists(cfg.tokenizer_path):
-            try:
-                from tokenizer import ClassicalTokenizer
-                self.tokenizer = ClassicalTokenizer()
-                self.tokenizer.load(cfg.tokenizer_path)
-                vocab_size = len(self.tokenizer.token_to_id)
-            except Exception:
-                pass
+            self.tokenizer = ClassicalTokenizer()
+            self.tokenizer.load(cfg.tokenizer_path)
 
         model = SimpleTransformer(
-            vocab_size=vocab_size,
+            vocab_size=len(self.tokenizer.token_to_id),
             d_model=cfg.d_model,
             nhead=cfg.nhead,
             num_layers=cfg.num_layers,
@@ -212,10 +255,17 @@ class SFTTrainer(BaseTrainer):
             dropout=cfg.dropout,
             max_len=cfg.max_len,
             mode=cfg.mode,
+            use_weight_tying=cfg.use_weight_tying,
+            use_sliding_window=False,
         )
 
         logger.info(f"SFT model built with {sum(p.numel() for p in model.parameters()):,} parameters")
-        return model
+        return self._prepare_model(model)
+
+    def fit(self) -> nn.Module:
+        if self.model is None:
+            raise ValueError("SFT needs an explicitly loaded pretrained model")
+        return super().fit()
 
     def compute_loss(
         self,
@@ -224,15 +274,19 @@ class SFTTrainer(BaseTrainer):
     ) -> Tuple[torch.Tensor, Dict[str, float]]:
         input_ids = batch["input_ids"]
         labels = batch["labels"]
-        attention_mask = batch.get("attention_mask")
-
-        outputs, _ = self.model(input_ids, attention_mask=attention_mask)
+        mask = batch["attention_mask"][:, None, None, :] == 0
+        additive = torch.zeros(mask.shape, device=input_ids.device, dtype=torch.float32)
+        additive = additive.masked_fill(mask, float("-inf"))
+        outputs = self.model(input_ids, attention_mask=additive)
+        outputs, labels = outputs[:, :-1], labels[:, 1:]
 
         if self.criterion is None:
             self.criterion = nn.CrossEntropyLoss(ignore_index=self.ignore_token_id)
 
-        logits_flat = outputs.view(-1, outputs.size(-1))
-        labels_flat = labels.view(-1)
+        logits_flat = outputs.reshape(-1, outputs.size(-1))
+        labels_flat = labels.reshape(-1)
+        if not (labels_flat != self.ignore_token_id).any():
+            raise ValueError("SFT batch has no supervised next tokens")
 
         loss = self.criterion(logits_flat, labels_flat)
 
@@ -256,7 +310,7 @@ class SFTTrainer(BaseTrainer):
         train_file: str,
         test_file: Optional[str] = None,
         batch_size: Optional[int] = None,
-        num_workers: int = 4,
+        num_workers: int = 0,
     ) -> Tuple[DataLoader, Optional[DataLoader]]:
         if batch_size is None:
             batch_size = self.config.batch_size
@@ -290,12 +344,12 @@ class SFTTrainer(BaseTrainer):
             batch_size=batch_size,
             shuffle=True,
             num_workers=num_workers,
-            pin_memory=torch.cuda.is_available(),
-            drop_last=True,
+            pin_memory=False,
+            collate_fn=partial(_collate_sft, pad_id=train_dataset.pad_id, ignore_id=self.ignore_token_id),
         )
 
         eval_loader = None
-        if test_file and os.path.exists(test_file):
+        if test_file:
             eval_dataset = InstructionResponseDataset(
                 data_path=test_file,
                 tokenizer=self.tokenizer,
@@ -312,7 +366,8 @@ class SFTTrainer(BaseTrainer):
                 batch_size=batch_size,
                 shuffle=False,
                 num_workers=num_workers,
-                pin_memory=torch.cuda.is_available(),
+                pin_memory=False,
+                collate_fn=partial(_collate_sft, pad_id=eval_dataset.pad_id, ignore_id=self.ignore_token_id),
             )
             logger.info(f"Eval dataloader: {len(eval_dataset)} samples")
 
@@ -332,7 +387,7 @@ class SFTTrainer(BaseTrainer):
         trainer = cls(config=config, accelerator=accelerator)
         model = trainer.build_model()
 
-        checkpoint = torch.load(pretrained_path, map_location="cpu")
+        checkpoint = torch.load(pretrained_path, map_location="cpu", weights_only=True)
         if "model_state_dict" in checkpoint:
             model.load_state_dict(checkpoint["model_state_dict"])
         else:
@@ -353,54 +408,40 @@ class SFTTrainer(BaseTrainer):
         if self.model is None or self.tokenizer is None:
             raise RuntimeError("Model and tokenizer must be initialized")
 
-        self.model.eval()
-
-        prompt = self.config.prompt_template.format(
-            instruction=instruction,
-            input=input_text if input_text else "N/A"
+        if max_new_tokens < 0 or temperature <= 0 or not 0 < top_p <= 1:
+            raise ValueError("Invalid generation token budget, temperature, or top_p")
+        if max_new_tokens == 0:
+            return ""
+        context = min(self.config.context_length, self.model.max_len)
+        prompt = _response_prefix(
+            _instruction_prompt(self.config.prompt_template, instruction, input_text),
+            self.config.response_template,
         )
+        input_ids = self.tokenizer.encode(prompt)[-min(self.config.max_prompt_length, context):]
+        eos_id = _special_id(self.tokenizer, "<eos>", "[SEP]")
+        generated = []
 
-        input_ids = self.tokenizer.encode(prompt)
-        input_tensor = torch.tensor([input_ids], dtype=torch.long, device=self.device)
+        was_training = self.model.training
+        self.model.eval()
+        try:
+            with torch.no_grad():
+                for _ in range(max_new_tokens):
+                    token_ids = (input_ids + generated)[-context:]
+                    batch = torch.tensor([token_ids], dtype=torch.long, device=self.device)
+                    logits = self.model(batch)[0, -1] / temperature
+                    probs = torch.softmax(logits, dim=-1)
+                    if top_p < 1.0:
+                        sorted_probs, sorted_indices = torch.sort(probs, descending=True)
+                        cut = sorted_probs.cumsum(-1) - sorted_probs >= top_p
+                        probs[sorted_indices[cut]] = 0
+                    token = torch.multinomial(probs, num_samples=1).item()
+                    if token == eos_id:
+                        break
+                    generated.append(token)
+        finally:
+            self.model.train(was_training)
 
-        with torch.no_grad():
-            outputs = self.model(input_tensor)
-            logits = outputs[0]
-
-            logits = logits[-1] / temperature
-            probs = torch.softmax(logits, dim=-1)
-
-            if top_p < 1.0:
-                sorted_probs, sorted_indices = torch.sort(probs, descending=True)
-                cumulative_probs = torch.cumsum(sorted_probs, dim=-1)
-                sorted_indices_to_remove = cumulative_probs > top_p
-                sorted_indices_to_remove[1:] = sorted_indices_to_remove[:-1].clone()
-                sorted_indices_to_remove[0] = 0
-                indices_to_remove = sorted_indices_to_remove.scatter(0, sorted_indices, sorted_indices_to_remove)
-                probs[indices_to_remove] = 0
-                probs = probs / probs.sum()
-
-            next_token = torch.multinomial(probs, num_samples=1)
-
-            generated = input_tensor.tolist()[0]
-            generated.append(next_token.item())
-
-            for _ in range(max_new_tokens - 1):
-                output_tensor = torch.tensor([generated[-self.config.context_length:]],
-                                            dtype=torch.long, device=self.device)
-                outputs = self.model(output_tensor)
-                logits = outputs[0][-1] / temperature
-                probs = torch.softmax(logits, dim=-1)
-                next_token = torch.multinomial(probs, num_samples=1)
-                generated.append(next_token.item())
-                if next_token == self.tokenizer.eos_id:
-                    break
-
-        response_ids = generated[len(input_ids):]
-        response = self.tokenizer.decode(response_ids)
-
-        self.model.train()
-        return response
+        return self.tokenizer.decode(generated)
 
 
 def create_sft_trainer(
@@ -413,7 +454,7 @@ def create_sft_trainer(
     batch_size: int = 4,
     learning_rate: float = 1e-5,
     epochs: int = 3,
-    accumulation_steps: int = 4,
+    accumulation_steps: int = 1,
     max_grad_norm: float = 1.0,
     weight_decay: float = 0.01,
     checkpoint_every: int = 1,
@@ -431,7 +472,6 @@ def create_sft_trainer(
         learning_rate=learning_rate,
         epochs=epochs,
         accumulation_steps=accumulation_steps,
-        gradient_accumulation_steps=accumulation_steps,
         max_grad_norm=max_grad_norm,
         weight_decay=weight_decay,
         checkpoint_every=checkpoint_every,
@@ -446,7 +486,7 @@ def create_sft_trainer(
 
     if pretrained_path:
         trainer.model = trainer.build_model()
-        checkpoint = torch.load(pretrained_path, map_location="cpu")
+        checkpoint = torch.load(pretrained_path, map_location="cpu", weights_only=True)
         if "model_state_dict" in checkpoint:
             trainer.model.load_state_dict(checkpoint["model_state_dict"])
         else:
