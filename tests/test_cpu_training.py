@@ -6,6 +6,7 @@ import pytest
 import torch
 
 from src.config import VERSION
+from src.model import ModernAttention
 from src.trainer import find_latest_checkpoint, train_model
 
 
@@ -77,3 +78,63 @@ def test_invalid_resume_checkpoint_is_not_a_fresh_training_run(tmp_path):
             night_mode=False, epochs=2,
         )
     assert not (tmp_path / "model_epoch_1.pt").exists()
+
+
+@pytest.mark.parametrize("kv_heads", [4, 2])
+@pytest.mark.parametrize("window", [False, True])
+@pytest.mark.parametrize("masked", [False, True])
+def test_uncached_sdpa_matches_eager_forward_and_gradient(kv_heads, window, masked):
+    torch.manual_seed(42)
+    options = dict(d_model=32, num_heads=4, num_kv_heads=kv_heads,
+                   use_sliding_window=window, window_size=3, attention_dropout=0.0)
+    sdpa = ModernAttention(use_flash_attention=True, **options).eval()
+    eager = ModernAttention(use_flash_attention=False, **options).eval()
+    eager.load_state_dict(sdpa.state_dict())
+    x = torch.randn(2, 7, 32, requires_grad=True)
+    y = x.detach().clone().requires_grad_()
+    mask = None
+    if masked:
+        mask = torch.ones(2, 7, 7, dtype=torch.bool)
+        mask[0, :, 6] = False
+        mask[1, 2, :] = False
+    a = sdpa(x, attention_mask=mask)[0]
+    b = eager(y, attention_mask=mask)[0]
+    torch.testing.assert_close(a, b, atol=1e-6, rtol=1e-5)
+    a.square().sum().backward()
+    b.square().sum().backward()
+    assert torch.isfinite(x.grad).all() and torch.isfinite(y.grad).all()
+    torch.testing.assert_close(x.grad, y.grad, atol=1e-6, rtol=1e-5)
+    if masked:
+        assert (a[1, 2] == 0).all()
+
+
+def test_default_uncached_attention_depends_on_past_but_not_future():
+    torch.manual_seed(42)
+    a = ModernAttention(d_model=32, num_heads=4, attention_dropout=0.0,
+                        use_sliding_window=False, use_flash_attention=True).eval()
+    x = torch.randn(1, 7, 32)
+    original = a(x)[0]
+    modified = x.clone()
+    modified[:, 0] = torch.randn(1, 32)
+    assert (a(modified)[0][:, 1:] - original[:, 1:]).abs().max() > 1e-5
+    modified = x.clone()
+    modified[:, -1] = torch.randn(1, 32)
+    torch.testing.assert_close(a(modified)[0][:, :-1], original[:, :-1], atol=0, rtol=0)
+
+
+@pytest.mark.parametrize("use_sdpa", [False, True])
+def test_causal_sliding_window_and_boolean_key_mask_keep_only_allowed_past(use_sdpa):
+    torch.manual_seed(42)
+    a = ModernAttention(d_model=32, num_heads=4, attention_dropout=0.0,
+                        use_sliding_window=True, window_size=3, use_flash_attention=use_sdpa).eval()
+    x = torch.randn(1, 7, 32)
+    mask = torch.ones(1, 7, dtype=torch.bool)
+    mask[0, 3] = False
+    original = a(x, attention_mask=mask)[0]
+    # For query 5 and window 3 the allowed positions are 4 and 5, not 3 or 2.
+    ignored = x.clone()
+    ignored[:, 2:4] = torch.randn(1, 2, 32)
+    torch.testing.assert_close(a(ignored, attention_mask=mask)[0][:, 5], original[:, 5], rtol=0, atol=0)
+    allowed = x.clone()
+    allowed[:, 4] = torch.randn(1, 32)
+    assert (a(allowed, attention_mask=mask)[0][:, 5] - original[:, 5]).abs().max() > 1e-5

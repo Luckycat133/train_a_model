@@ -407,13 +407,53 @@ class ModernAttention(nn.Module):
             # attention_mask: [B, 1, 1, L] or [B, H, L, L]
             scores = scores + attention_mask
 
-        attn_weights = F.softmax(scores, dim=-1)
+        # An entirely masked query contributes no attention and no gradient.
+        valid_rows = scores.ne(float("-inf")).any(dim=-1, keepdim=True)
+        attn_weights = F.softmax(scores.masked_fill(~valid_rows, 0), dim=-1).masked_fill(~valid_rows, 0)
         if self.training and self.attention_dropout > 0:
             attn_weights = self.dropout(attn_weights)
 
         v_t = v.transpose(1, 2)  # [B, H, L, D]
         output = torch.matmul(attn_weights, v_t)  # [B, H, L, D]
         return output.transpose(1, 2)  # [B, L, H, D]
+
+    def _attend_uncached(self, q, k, v, attention_mask, is_causal):
+        # Projection/RoPE use [B,L,H,D]; SDPA indexes [B,H,L,D].
+        length = q.shape[1]
+        attn_mask = attention_mask
+        if attn_mask is not None:
+            if attn_mask.ndim == 2:
+                attn_mask = attn_mask[:, None, None, :]
+            elif attn_mask.ndim == 3:
+                attn_mask = attn_mask[:, None, :, :]
+            elif attn_mask.ndim != 4:
+                raise ValueError("Attention mask must have rank 2, 3, or 4")
+            if not attn_mask.is_floating_point():
+                attn_mask = torch.zeros(attn_mask.shape, dtype=q.dtype, device=q.device).masked_fill(
+                    ~attn_mask.to(device=q.device, dtype=torch.bool), float("-inf"),
+                )
+            else:
+                attn_mask = attn_mask.to(device=q.device, dtype=q.dtype)
+        if self.use_sliding_window or (is_causal and attn_mask is not None):
+            positions = torch.arange(length, device=q.device)
+            offset = positions[:, None] - positions[None, :]
+            allowed = offset >= 0 if is_causal else torch.ones_like(offset, dtype=torch.bool)
+            if self.use_sliding_window:
+                allowed = allowed & (offset < self.window_size)
+            if attn_mask is None:
+                attn_mask = torch.zeros((length, length), device=q.device, dtype=q.dtype)
+            attn_mask = attn_mask.masked_fill(~allowed, float("-inf"))
+            is_causal = False
+
+        if not self.use_flash_attention:
+            return self._naive_attention(q, k, v, attn_mask, is_causal)
+        return F.scaled_dot_product_attention(
+            q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2),
+            attn_mask=attn_mask,
+            dropout_p=self.attention_dropout if self.training else 0.0,
+            is_causal=is_causal,
+        ).transpose(1, 2)
+
 
     def forward(
         self,
@@ -428,6 +468,7 @@ class ModernAttention(nn.Module):
         Args:
             x: [batch_size, seq_len, d_model]
             attention_mask: Optional attention mask (e.g., for padding).
+                           Uncached masks use True/1 = allowed or additive float bias.
                            Shape: [batch_size, 1, seq_len, seq_len] or [batch_size, seq_len].
             is_causal: If True, apply causal masking automatically via SDPA.
             use_cache: If True, return past_key_values for KV caching in generation.
@@ -467,7 +508,11 @@ class ModernAttention(nn.Module):
             k = k.repeat_interleave(reps, dim=2)  # [B, seq, num_heads, head_dim]
             v = v.repeat_interleave(reps, dim=2)  # [B, seq, num_heads, head_dim]
 
-        # Return cache for next forward pass
+        if not use_cache and past_key_values is None:
+            output = self._attend_uncached(q, k, v, attention_mask, is_causal)
+            return self.o_proj(output.reshape(B, L, -1)), None
+
+        # Keep the existing cache/prefill/decode path separate from uncached attention.
         present_key_values = (k, v) if use_cache else None
 
         # Sliding Window Attention: mask out tokens beyond window_size
