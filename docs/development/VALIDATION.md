@@ -114,3 +114,33 @@ Accelerate/DDP 使用真实多进程短运行验证设备放置、accumulate/syn
 ## API 核对来源
 
 2026-11-15 核对官方文档：[SDPA](https://docs.pytorch.org/docs/2.15/generated/torch.nn.functional.scaled_dot_product_attention.html)、[torch.save](https://docs.pytorch.org/docs/2.15/generated/torch.save.html)、[AMP](https://docs.pytorch.org/docs/2.15/amp.html)、[Accelerate accumulation](https://huggingface.co/docs/accelerate/usage_guides/gradient_accumulation)。这些是契约依据，不是本项目已经在文档版本上运行的证据；实际支持版本仍需记录并执行门禁。
+
+## 2026-11-22 CPU training evidence
+
+Baseline `6c4ef975`: the public CPU quick command reached model and dataset setup,
+then its four hard-coded data-loader workers hit restricted IPC before update 1.
+The repaired path defaults to zero workers and uses real PyTorch, optimizer and
+bundled small JSONL, not a mock or full pretraining.
+
+- `OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 python -m src.run --quick --no_cuda`:
+  Linux x86_64, Python 3.12.14, PyTorch 2.15.0+cpu, FP32, seed 42. One epoch,
+  14 optimizer updates, 448 target tokens, exit 0, loss 10.3125. Writes
+  `model_epoch_1.pt` and `final_model_v0.8.5.pt`.
+- `python -m pytest -q tests/test_cpu_training.py`: compares continuous
+  two-epoch training with an epoch-1 save and resume (three updates per
+  epoch, accumulation 3 including a partial final window). Parameters,
+  logits, optimizer/scheduler state, Torch CPU RNG, steps, LR and losses
+  match exactly after 6 updates and 896 tokens. No mid-epoch resume:
+  interrupts preserve the last completed checkpoint and fail rather than
+  writing a partial epoch as complete. Incompatible checkpoints abort.
+- MLA: `python -m pytest -q test/test_arch_upgrades.py` exits 2 during
+  collection because `MultiHeadLatentAttention` is absent. G2 MLA and future
+  performance comparisons remain blocked; this is not an MLA implementation.
+- SFT: direct CPU construction with the real model fails because
+  `BaseTrainer.__init__` rejects `accelerator`. Fetching one sample with
+  the actual tokenizer independently fails because `encode` rejects
+  `max_length`. G4 does not pass; no SFT quality or training claim.
+
+The new CI gate repeats the quick CPU command and exact-resume regression.
+G2 attention/cache equivalence, G4 SFT, G5 GPU/multiprocess and G6 model
+quality are outside this CPU smoke result. Checkpoint weights stay out of Git.

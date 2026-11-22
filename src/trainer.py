@@ -5,11 +5,13 @@ collected here. The top-level ``run`` function is in ``src/run.py``.
 """
 
 import argparse
-import glob
+import hashlib
 import math
 import os
 import shutil
 import signal
+import tempfile
+from contextlib import nullcontext
 import threading
 import time
 import psutil
@@ -199,7 +201,7 @@ def _build_signal_handler() -> None:
         global TERMINATE_TRAINING, SAVE_CHECKPOINT_SIGNAL
         TERMINATE_TRAINING = True
         SAVE_CHECKPOINT_SIGNAL = True
-        logger.warning("Termination signal received – will save checkpoint and exit …")
+        logger.warning("Termination signal received; preserving the last completed checkpoint")
 
     signal.signal(signal.SIGINT, handler)
     signal.signal(signal.SIGTERM, handler)
@@ -209,13 +211,40 @@ def _build_signal_handler() -> None:
 
 
 def find_latest_checkpoint(model_save_dir: str) -> Optional[str]:
-    """Return the path to the most recently modified checkpoint, or None."""
-    pattern = os.path.join(model_save_dir, f"checkpoint_epoch*_v{VERSION}.pt")
-    files = glob.glob(pattern)
-    if not files:
-        return None
-    files.sort(key=os.path.getmtime, reverse=True)
-    return files[0]
+    """Find the highest numbered completed epoch produced by the trainer."""
+    files = [p for p in Path(model_save_dir).glob("model_epoch_*.pt")
+             if p.stem.removeprefix("model_epoch_").isdigit()]
+    return str(max(files, key=lambda p: int(p.stem.removeprefix("model_epoch_")))) if files else None
+
+
+def _atomic_torch_save(checkpoint: dict, path: Path) -> None:
+    with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as tmp:
+        tmp_path = Path(tmp.name)
+        try:
+            torch.save(checkpoint, tmp)
+            tmp.flush()
+            os.fsync(tmp.fileno())
+        except BaseException:
+            tmp.close()
+            tmp_path.unlink(missing_ok=True)
+            raise
+    try:
+        os.replace(tmp_path, path)
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
+
+def _resume_fingerprint(tokenizer_path, datasets, parameters) -> str:
+    with Path(tokenizer_path).open("rb") as source:
+        digest = hashlib.file_digest(source, "sha256")
+    digest.update(repr(parameters).encode("utf-8"))
+    for dataset in datasets:
+        digest.update(str(len(dataset) if dataset is not None else "absent").encode("ascii") + b":")
+        if dataset is not None:
+            for sample in dataset.samples:
+                digest.update(sample["input_ids"].tobytes())
+                digest.update(sample["target_ids"].tobytes())
+    return digest.hexdigest()
 
 
 def save_checkpoint(
@@ -230,6 +259,7 @@ def save_checkpoint(
     best_loss: Optional[float] = None,
     name: Optional[str] = None,
     is_best: bool = False,
+    fingerprint: Optional[str] = None,
 ) -> Path:
     """Serialize a training checkpoint.
 
@@ -260,16 +290,18 @@ def save_checkpoint(
         "scheduler_state_dict": scheduler.state_dict() if scheduler else None,
         "scaler_state_dict": scaler.state_dict() if scaler else None,
         "stats": stats,
-        # FIX: save best_loss so auto-resume can restore it
+        "resume_fingerprint": fingerprint,
+        "cpu_rng_state": torch.get_rng_state(),
+        "cuda_rng_state": torch.cuda.get_rng_state_all() if next(model.parameters()).is_cuda else None,
         "best_loss": best_loss if best_loss is not None else float("inf"),
     }
 
-    torch.save(checkpoint, checkpoint_path, weights_only=True)
+    _atomic_torch_save(checkpoint, checkpoint_path)
     logger.info(f"Checkpoint saved → {checkpoint_path}")
 
     if is_best:
         best_path = save_dir / "best_model.pt"
-        torch.save(checkpoint, best_path, weights_only=True)
+        _atomic_torch_save(checkpoint, best_path)
         logger.info(f"Best model saved → {best_path}")
 
     return checkpoint_path
@@ -281,6 +313,10 @@ def load_checkpoint(
     optimizer: Optional[torch.optim.Optimizer] = None,
     scheduler: Optional[object] = None,
     device: Optional[torch.device] = None,
+    *,
+    scaler: Optional[GradScaler] = None,
+    stats: Optional[Dict[str, List[Any]]] = None,
+    fingerprint: Optional[str] = None,
 ) -> Tuple[int, float]:
     """Load a checkpoint and restore training state.
 
@@ -291,19 +327,24 @@ def load_checkpoint(
         device = torch.device("cpu")
 
     ckpt = torch.load(checkpoint_path, map_location=device, weights_only=True)
+    if fingerprint is not None and ckpt.get("resume_fingerprint") != fingerprint:
+        raise ValueError("Checkpoint is not a compatible completed-epoch training checkpoint")
+    if scaler is not None and ckpt.get("scaler_state_dict") is None:
+        raise ValueError("Checkpoint has no required AMP scaler state")
     model.load_state_dict(ckpt["model_state_dict"])
 
-    if optimizer is not None and "optimizer_state_dict" in ckpt:
-        try:
-            optimizer.load_state_dict(ckpt["optimizer_state_dict"])
-        except Exception as e:
-            logger.warning(f"Could not restore optimizer state: {e}")
-
-    if scheduler is not None and "scheduler_state_dict" in ckpt:
-        try:
-            scheduler.load_state_dict(ckpt["scheduler_state_dict"])
-        except Exception:
-            pass
+    if optimizer is not None:
+        optimizer.load_state_dict(ckpt["optimizer_state_dict"])
+    if scheduler is not None:
+        scheduler.load_state_dict(ckpt["scheduler_state_dict"])
+    if scaler is not None:
+        scaler.load_state_dict(ckpt["scaler_state_dict"])
+    if stats is not None:
+        stats.update(ckpt["stats"])
+    if fingerprint is not None:
+        torch.set_rng_state(ckpt["cpu_rng_state"].cpu())
+        if device.type == "cuda":
+            torch.cuda.set_rng_state_all([state.cpu() for state in ckpt["cuda_rng_state"]])
 
     return ckpt.get("epoch", 0), ckpt.get("best_loss", float("inf"))
 
@@ -334,7 +375,7 @@ def evaluate_model(
 
             use_autocast = use_amp and device.type == "cuda"
             eval_dtype = amp_dtype if (use_autocast and amp_dtype) else None
-            with autocast(enabled=use_autocast, dtype=eval_dtype):
+            with autocast(device_type=device.type, dtype=eval_dtype) if use_autocast else nullcontext():
                 outputs = model(input_ids)
                 loss = criterion(
                     outputs.view(-1, outputs.size(-1)), target_ids.view(-1)
@@ -440,7 +481,9 @@ def train_model(
     use_moe: bool = False,  # Added for MoE support
     num_experts: int = 8,  # Added for MoE configuration
     top_k: int = 2,  # Added for MoE configuration
-    log_stats_interval: int = 100,  # Added for stats logging interval
+    log_stats_interval: int = 100,
+    seed: Optional[int] = None,
+    num_workers: int = 0,
 ) -> nn.Module:
     """Train a language model end-to-end.
 
@@ -450,7 +493,12 @@ def train_model(
     - Modern mode: RoPE, SwiGLU, GQA, Flash Attention, optional MoE
     - Legacy mode: Original sinusoidal PE + TransformerEncoder
     """
-    import torch.nn.functional as F  # noqa: F401 – used via criterion
+    global TERMINATE_TRAINING, SAVE_CHECKPOINT_SIGNAL
+    TERMINATE_TRAINING = SAVE_CHECKPOINT_SIGNAL = False
+    if min(batch_size, context_length, epochs, checkpoint_every, accumulation_steps) < 1 or num_workers < 0:
+        raise ValueError("Training sizes and checkpoint interval must be positive, workers non-negative")
+    if seed is not None:
+        torch.manual_seed(seed)
 
     # ── Device ───────────────────────────────────────────────────────────────
     if device is None:
@@ -500,17 +548,21 @@ def train_model(
         tokenizer=tok,
         stride=context_length // 2,
     )
+    if len(train_dataset) < batch_size:
+        raise ValueError("Training data produces zero complete batches")
+
     train_loader = DataLoader(
         train_dataset,
         batch_size=batch_size,
         shuffle=True,
-        num_workers=4,  # Optimal worker count for modern systems
+        num_workers=num_workers,
         pin_memory=(device.type != "cpu"),
         drop_last=True,  # Added for stable batch processing
     )
 
     test_loader: Optional[DataLoader] = None
-    if test_file and os.path.exists(test_file):
+    test_dataset: Optional[LMDataset] = None
+    if test_file:
         logger.info(f"Loading test data: {test_file}")
         test_dataset = LMDataset(
             test_file,
@@ -518,11 +570,13 @@ def train_model(
             tokenizer=tok,
             stride=context_length,
         )
+        if not len(test_dataset):
+            raise ValueError("Validation data produces zero batches")
         test_loader = DataLoader(
             test_dataset,
             batch_size=batch_size,
             shuffle=False,
-            num_workers=4,  # Optimal worker count
+            num_workers=num_workers,
             pin_memory=(device.type != "cpu"),
         )
 
@@ -571,27 +625,6 @@ def train_model(
     elif use_gradient_checkpointing:
         logger.warning("Gradient checkpointing only supported in modern mode")
 
-    # ── Resume ────────────────────────────────────────────────────────────────
-    initial_epoch = 0
-    best_loss = float("inf")
-
-    if resume_from:
-        if os.path.exists(resume_from):
-            logger.info(f"Resuming from checkpoint: {resume_from}")
-            initial_epoch, best_loss = load_checkpoint(
-                resume_from, model, device=device
-            )
-    elif auto_resume:
-        latest = find_latest_checkpoint(model_save_dir)
-        if latest:
-            logger.info(f"Auto-resuming from: {latest}")
-            try:
-                initial_epoch, best_loss = load_checkpoint(
-                    latest, model, device=device
-                )
-            except Exception as e:
-                logger.warning(f"Could not load checkpoint ({e}), starting fresh")
-
     # ── Optimizer & scheduler ────────────────────────────────────────────────
     # Modern weight decay: exclude bias and norm parameters from decay
     # This is standard practice in modern LLMs (LLaMA, BERT, etc.)
@@ -610,7 +643,7 @@ def train_model(
     ]
 
     # Use fused AdamW when available (faster on Ampere+ GPUs with torch 2.0+)
-    if USE_FUSED_ADAMW and hasattr(torch.optim, "AdamW") and torch.cuda.is_available():
+    if USE_FUSED_ADAMW and device.type == "cuda":
         try:
             # fused=True requires CUDA and is faster
             optimizer = torch.optim.AdamW(
@@ -643,10 +676,10 @@ def train_model(
     if use_amp and device.type == "cuda":
         if torch.cuda.is_bf16_supported():
             amp_dtype = torch.bfloat16
-            scaler = GradScaler('cuda', bf16=True)
+
         else:
             amp_dtype = torch.float16
-            scaler = GradScaler('cuda', bf16=False)
+            scaler = GradScaler('cuda')
 
     criterion = nn.CrossEntropyLoss(label_smoothing=LABEL_SMOOTHING)
 
@@ -657,11 +690,32 @@ def train_model(
         "epoch_times": [],
         "test_losses": [],
         "steps": [],
+        "optimizer_updates": [],
+        "tokens": [],
         "system_memory": [],  # Added for system memory monitoring
         "gpu_usage": [],      # Added for GPU usage monitoring
     }
     if torch is not None and torch.cuda.is_available():
         stats["gpu_memory_usage"] = []
+
+    fingerprint = _resume_fingerprint(tokenizer_path, (train_dataset, test_dataset), (
+        context_length, batch_size, num_workers, accumulation_steps, learning_rate, max_grad_norm, weight_decay,
+        d_model, nhead, num_layers, dim_feedforward, dropout, device.type, amp_dtype,
+        use_checkpoint, use_gradient_checkpointing, use_compile, use_weight_tying, use_sliding_window,
+        window_size, mode, num_kv_heads, use_moe, num_experts, top_k,
+        LABEL_SMOOTHING, WARMUP_STEPS, TOTAL_TRAINING_STEPS, MIN_LR_RATIO,
+    ))
+    initial_epoch, best_loss = 0, float("inf")
+    resume = resume_from or (find_latest_checkpoint(model_save_dir) if auto_resume else None)
+    if resume:
+        initial_epoch, best_loss = load_checkpoint(
+            resume, model, optimizer, scheduler, device, scaler=scaler, stats=stats, fingerprint=fingerprint,
+        )
+        if initial_epoch >= epochs:
+            raise ValueError("Checkpoint already reached the requested total epochs")
+        logger.info(f"Restored complete epoch {initial_epoch} from {resume}")
+    updates = stats["optimizer_updates"][-1] if stats["optimizer_updates"] else 0
+    tokens = stats["tokens"][-1] if stats["tokens"] else 0
 
     # ── Install signal handler ────────────────────────────────────────────────
     _build_signal_handler()
@@ -687,38 +741,25 @@ def train_model(
         optimizer.zero_grad()
 
         for step, batch in enumerate(pbar):
-            # Check for termination signal using global flags
             if TERMINATE_TRAINING:
-                if SAVE_CHECKPOINT_SIGNAL:
-                    logger.warning("Saving checkpoint before termination …")
-                    save_checkpoint(
-                        epoch=epoch,
-                        model=model,
-                        optimizer=optimizer,
-                        scheduler=scheduler,
-                        scaler=scaler,
-                        stats=stats,
-                        save_dir=model_save_dir,
-                        best_loss=best_loss,
-                        name=f"interrupted_epoch_{epoch + 1}",
-                    )
-                    SAVE_CHECKPOINT_SIGNAL = False
-                break
-
-            try:
-                input_ids, target_ids = _unpack_batch(batch, device)
-            except Exception as e:
-                logger.warning(f"Skipping batch {step}: {e}")
-                continue
-
-            with autocast(enabled=(use_amp and device.type == "cuda"), dtype=amp_dtype):
+                raise InterruptedError("Training interrupted; only completed-epoch checkpoints can be resumed")
+            input_ids, target_ids = _unpack_batch(batch, device)
+            tokens += target_ids.numel()
+            window_start = step - step % accumulation_steps
+            window_size_steps = min(accumulation_steps, len(train_loader) - window_start)
+            with autocast(device_type=device.type, dtype=amp_dtype) if amp_dtype else nullcontext():
                 outputs, _, aux_loss = model(input_ids, return_aux_loss=True)
                 ce_loss = criterion(
                     outputs.view(-1, outputs.size(-1)), target_ids.view(-1)
                 )
-                loss = (ce_loss + aux_loss) / accumulation_steps
+                loss = (ce_loss + aux_loss) / window_size_steps
 
-            scaler.scale(loss).backward()
+            if not torch.isfinite(loss):
+                raise FloatingPointError("Non-finite training loss")
+            if scaler is None:
+                loss.backward()
+            else:
+                scaler.scale(loss).backward()
 
             if (step + 1) % accumulation_steps == 0 or (step + 1) == len(
                 train_loader
@@ -728,18 +769,22 @@ def train_model(
                     if scaler is not None:
                         scaler.unscale_(optimizer)
                     torch.nn.utils.clip_grad_norm_(
-                        model.parameters(), max_grad_norm
+                        model.parameters(), max_grad_norm, error_if_nonfinite=scaler is None
                     )
 
+                performed_update = True
                 if scaler is not None:
+                    old_scale = scaler.get_scale()
                     scaler.step(optimizer)
                     scaler.update()
+                    performed_update = scaler.get_scale() >= old_scale
                 else:
                     optimizer.step()
                 optimizer.zero_grad()
-                scheduler.step()
-
-            total_loss += loss.item() * accumulation_steps
+                if performed_update:
+                    scheduler.step()
+                    updates += 1
+            total_loss += loss.item() * window_size_steps
             avg_loss = total_loss / max(step + 1, 1)
             cur_lr = scheduler.get_last_lr()[0]
             pbar.set_postfix({"loss": f"{avg_loss:.4f}", "lr": f"{cur_lr:.8f}"})
@@ -748,11 +793,13 @@ def train_model(
             stats["steps"].append(current_step)
             stats["losses"].append(avg_loss)
             stats["learning_rates"].append(cur_lr)
+            stats["optimizer_updates"].append(updates)
+            stats["tokens"].append(tokens)
 
             # Log system stats periodically
             if step % log_stats_interval == 0:
                 system_stats = log_system_stats()
-                stats["system_memory"].append(system_stats["memory"].percent)
+                stats["system_memory"].append(system_stats["memory"]["percent"])
                 if system_stats["gpu"]:
                     stats["gpu_usage"].append(system_stats["gpu"][0].get("utilization", 0))
 
@@ -770,18 +817,17 @@ def train_model(
 
         logger.info(
             f"Epoch {epoch + 1}/{epochs} done – loss={epoch_loss:.4f}, "
-            f"time={epoch_elapsed:.1f}s"
+            f"time={epoch_elapsed:.1f}s, optimizer_updates={updates}, tokens={tokens}"
         )
         
         # Log epoch end system stats
         logger.info("End of epoch system statistics:")
         log_system_stats()
 
-        # Check for termination signal
         if TERMINATE_TRAINING:
-            logger.warning("Terminating training early …")
-            break
+            raise InterruptedError("Training interrupted; only completed-epoch checkpoints can be resumed")
 
+        is_best = False
         if test_loader is not None:
             test_loss = evaluate_model(
                 model, test_loader, criterion, device,
@@ -792,10 +838,10 @@ def train_model(
             stats["test_losses"].append(test_loss)
             if test_loss < best_loss:
                 best_loss = test_loss
+                is_best = True
 
         # ── Checkpoint ──────────────────────────────────────────────────────
-        is_best = epoch == (epochs - 1)
-        if (epoch + 1) % checkpoint_every == 0 or is_best:
+        if (epoch + 1) % checkpoint_every == 0 or is_best or epoch + 1 == epochs:
             save_checkpoint(
                 epoch=epoch,
                 model=model,
@@ -807,6 +853,7 @@ def train_model(
                 best_loss=best_loss,
                 name=f"model_epoch_{epoch + 1}",
                 is_best=is_best,
+                fingerprint=fingerprint,
             )
 
     # ── Final save ────────────────────────────────────────────────────────────
@@ -820,6 +867,7 @@ def train_model(
         save_dir=model_save_dir,
         best_loss=best_loss,
         name=f"final_model_v{VERSION}",
+        fingerprint=fingerprint,
     )
     logger.info(f"✅ Training complete. Final model saved.")
 

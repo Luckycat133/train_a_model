@@ -73,6 +73,9 @@ def _apply_quick_preset(args: argparse.Namespace) -> None:
     args.nhead = 4
     args.num_layers = 1
     args.dim_feedforward = 64
+    args.num_workers = 0
+    if args.seed is None:
+        args.seed = 42
     args.batch_size = 1
     args.epochs = 1
     args.accumulation_steps = 1
@@ -103,6 +106,8 @@ def main() -> None:
 
     # Training
     parser.add_argument("--batch_size", type=int, default=DEFAULT_BATCH_SIZE)
+    parser.add_argument("--num_workers", type=int, default=0, help="DataLoader worker processes")
+    parser.add_argument("--seed", type=int, default=None, help="Set the PyTorch training seed")
     parser.add_argument("--learning_rate", type=float, default=DEFAULT_LEARNING_RATE)
     parser.add_argument("--epochs", type=int, default=DEFAULT_EPOCHS)
     parser.add_argument("--checkpoint_every", type=int, default=DEFAULT_CHECKPOINT_EVERY)
@@ -212,6 +217,8 @@ def main() -> None:
         use_weight_tying=args.use_weight_tying,
         use_sliding_window=args.use_sliding_window,
         window_size=args.window_size,
+        num_workers=args.num_workers,
+        seed=args.seed,
     )
 
 
