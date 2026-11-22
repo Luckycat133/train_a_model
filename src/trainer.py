@@ -704,7 +704,7 @@ def train_model(
         use_checkpoint, use_gradient_checkpointing, use_compile, use_weight_tying, use_sliding_window,
         window_size, mode, num_kv_heads, use_moe, num_experts, top_k,
         LABEL_SMOOTHING, WARMUP_STEPS, TOTAL_TRAINING_STEPS, MIN_LR_RATIO,
-    ))
+    ) + (("modern-uncached-attention-v2",) if mode == "modern" else ()))
     initial_epoch, best_loss = 0, float("inf")
     resume = resume_from or (find_latest_checkpoint(model_save_dir) if auto_resume else None)
     if resume:
