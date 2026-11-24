@@ -17,7 +17,7 @@ docs/experiments/
 
 预训练阶段在大规模语料上训练基础语言模型，学习通用语言表示。
 
-**配置文件**: [config/pretrain.yaml](file:///workspace/config/pretrain.yaml)
+**配置文件**: [config/pretrain.yaml](../../config/pretrain.yaml)
 
 **主要特点**:
 - 使用大规模文本语料
@@ -34,7 +34,7 @@ docs/experiments/
 
 在特定任务数据上进行微调，使模型适应具体应用场景。
 
-**配置文件**: [config/sft.yaml](file:///workspace/config/sft.yaml)
+**配置文件**: [config/sft.yaml](../../config/sft.yaml)
 
 **主要特点**:
 - 使用结构化指令数据
@@ -52,7 +52,7 @@ docs/experiments/
 
 使用强化学习方法进一步优化模型输出质量。
 
-**配置文件**: [config/rl.yaml](file:///workspace/config/rl.yaml)
+**配置文件**: [config/rl.yaml](../../config/rl.yaml)
 
 **主要特点**:
 - 支持PPO算法
@@ -79,7 +79,7 @@ docs/experiments/
 - `MemoryConfig` - 内存和性能配置
 - `RLConfig` - 强化学习配置
 
-详见: [src/config/schema.py](file:///workspace/src/config/schema.py)
+详见: [src/config/schema.py](../../src/config/schema.py)
 
 ### 验证工具
 
@@ -95,7 +95,7 @@ is_valid, config, warnings = load_and_validate_config(
 )
 ```
 
-详见: [src/config/validator.py](file:///workspace/src/config/validator.py)
+详见: [src/config/validator.py](../../src/config/validator.py)
 
 ## 训练流程
 
@@ -326,9 +326,9 @@ A: 检查:
 
 ## 相关资源
 
-- [快速开始指南](file:///workspace/docs/experiments/quickstart.md)
-- [预训练示例](file:///workspace/examples/pretrain_example.py)
-- [SFT示例](file:///workspace/examples/sft_example.py)
-- [评估示例](file:///workspace/examples/eval_example.py)
-- [配置Schema](file:///workspace/src/config/schema.py)
-- [配置验证器](file:///workspace/src/config/validator.py)
+- [快速开始指南](./quickstart.md)
+- [预训练示例](../../examples/pretrain_example.py)
+- [SFT示例](../../examples/sft_example.py)
+- [评估示例](../../examples/eval_example.py)
+- [配置Schema](../../src/config/schema.py)
+- [配置验证器](../../src/config/validator.py)

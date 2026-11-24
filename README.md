@@ -21,13 +21,13 @@ python -m src.run --quick --no_cuda
 python -m src.run --train your-data.jsonl --epochs 10 --save_dir quick_runs/custom
 ```
 
-继续最新检查点：
+继续最新检查点（或使用 `--resume_from <checkpoint>` 精确指定某个检查点）：
 
 ```bash
 python -m src.run --train your-data.jsonl --resume
 ```
 
-查看全部真实可用参数：
+查看全部真实可用参数（由 [src/run.py](src/run.py) 定义）：
 
 ```bash
 python -m src.run --help
@@ -42,11 +42,16 @@ python -m src.run --help
 
 详见 [model_weights/README.md](model_weights/README.md)。
 
-## 验证范围
+## 验证范围与入口
 
-当前 CI 运行源文件编译和轻量 CLI 合约测试。完整 PyTorch 训练仍需在合适的本地环境执行。现阶段不声称“最佳实践”、性能提升或模型质量，除非对应结果出现在可复现评估中。
+当前 CI（[.github/workflows/ci.yml](.github/workflows/ci.yml)）运行源文件编译（`python -m compileall -q src`）和轻量 CLI 合约测试（`pytest -q tests/test_cli_contract.py`）。完整 PyTorch 训练仍需在合适的本地环境执行。现阶段不声称“最佳实践”、性能提升或模型质量，除非对应结果出现在可复现评估中。
 
-最终结论、已知缺口和归档条件见 [EXPERIMENT_REPORT.md](EXPERIMENT_REPORT.md)。
+- CLI 入口：[src/run.py](src/run.py)
+- 配置常量与 Schema：[src/config.py](src/config.py) · [src/config/\_\_init\_\_.py](src/config/__init__.py)（注意仓库同时存在 `src/config.py` 与 `src/config/` 包，导入 `src.config` 时优先解析包入口）
+- CLI 合约测试：[tests/test_cli_contract.py](tests/test_cli_contract.py)
+- 最终结论、已知缺口和归档条件：[EXPERIMENT_REPORT.md](EXPERIMENT_REPORT.md)
+- 版本变更记录：[CHANGELOG.md](CHANGELOG.md)
+- 文档总索引与数据/实验指南：[docs/README.md](docs/README.md) · [docs/data/README.md](docs/data/README.md) · [docs/experiments/README.md](docs/experiments/README.md) · [docs/experiments/quickstart.md](docs/experiments/quickstart.md)
 
 ## 许可证
 
