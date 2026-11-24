@@ -10,6 +10,8 @@
 
 开发前阅读 [项目 skill](.agents/skills/train-a-model-development/SKILL.md)、[路线图](ROADMAP.md)、[验证门禁](docs/development/VALIDATION.md) 与 [审查记录](docs/development/AUDIT_2026-11-15.md)。训练规则见 [BEST_PRACTICES.md](BEST_PRACTICES.md)，实际调用路径见 [architecture](docs/en/architecture.md)。本次规范修订不修改训练代码或 CI。旧语言版 README、研究文档和历史 changelog 不能覆盖当前验收状态。
 
+完整文档索引见 [`docs/README.md`](docs/README.md)，变更记录见 [`CHANGELOG.md`](CHANGELOG.md)。
+
 ## 轻量验证与真实训练目标
 
 当前 CI 范围是：

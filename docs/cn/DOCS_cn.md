@@ -1,122 +1,68 @@
 # 灵猫墨韵项目文档
 
-[English](../en/DOCS_en.md) | [中文](./DOCS_cn.md)
+[English](../en/DOCS_en.md) | [中文](./DOCS_cn.md) | [文档总索引](../README.md)
 
 ---
 
 ## 文档概览
 
-本项目文档提供了灵猫墨韵大语言模型项目的完整指南，包括各个模块的使用方法、训练流程、生成方法等内容。
+本页汇总灵猫墨韵大语言模型项目现有的中文及相关核心文档入口。项目当前状态、验证入口与权重边界请先阅读根目录 [README.md](../../README.md)。
 
-## 模块指南
+## 入门与架构
 
-- [项目概述](./project_overview.md) - 项目整体介绍和架构说明
-- [技术架构](./technical_architecture.md) - 技术架构详细说明与数据流
-- [系统架构设计](./design_docs/system_architecture.md) - 系统架构详细设计与模块关系
-- [安装指南](./installation/installation_guide.md) - 不同系统的安装步骤与环境配置
-- [训练模块指南](./train_model_guide.md) - 模型训练方法与参数配置
-- [生成模块指南](./generate_guide.md) - 使用模型进行文本生成
-- [处理器指南](./processor_guide.md) - 数据预处理工具使用说明
-- [分词器指南](./tokenizer_guide.md) - 分词器训练与使用方法
-- [脚本使用指南](./scripts_guide.md) - 辅助脚本功能说明
-- [清理工具指南](./cleanup_guide.md) - 项目清理与空间优化工具
-- [项目维护指南](./project_maintenance.md) - 项目体积管理和清理方法
+- [快速入门](./getting-started.md) — 克隆仓库、安装依赖与基本运行流程
+- [安装指南](./installation_guide.md) — 不同操作系统的安装步骤与环境配置
+- [模块架构说明（英文）](../en/architecture.md) — `src/` 目录模块化架构概览
+- [最新 LLM 架构调研报告（英文）](../en/research-latest-llm-architecture.md) — 2025–2026 LLM 架构调研
 
-## 最佳实践指南
+## 数据与实验文档
 
-- [训练优化最佳实践](./best_practices/training_optimization.md) - 模型训练优化指南
-  - 硬件优化策略
-  - 超参数调优指南
-  - 训练稳定性优化
-  - 性能监控与调优
+- [数据文档总览](../data/README.md) — 古典文献数据目录与入口
+- [数据获取与预处理指南](../data/getting_started.md) — 训练数据下载与预处理步骤
+- [数据格式说明](../data/formats.md) — JSONL 格式与字段规范
+- [实验平台使用指南](../experiments/README.md) — 预训练、SFT 微调与评估配置说明
+- [实验快速开始指南](../experiments/quickstart.md) — 三步启动训练实验
 
-## 代码详解
+## 工程报告与最佳实践
 
-- [训练模块代码解析](./code_explanation/train_model_code.md) - 训练模块核心代码详解
-- [分词器代码解析](./code_explanation/tokenizer_code.md) - 分词器模块实现分析
-- [处理器代码解析](./code_explanation/processor_code.md) - 处理器模块架构解析
+- [实验报告与归档说明](../../EXPERIMENT_REPORT.md) — 最终结论、已知缺口与归档条件
+- [数据集完整说明](../../DATASET.md) — 数据集构成与来源记录
+- [训练与工程实践](../../BEST_PRACTICES.md) — 训练优化与工程实践记录
+- [权重目录说明](../../model_weights/README.md) — 权重边界与外部发布要求
 
-## 更新日志
+## 模块更新日志
 
-- [训练模块更新](../../changelog/cn/for_train_model.md) - 训练相关功能更新记录
-- [处理器更新](../../changelog/cn/for_processor.md) - 处理器功能更新历史
-- [分词器更新](../../changelog/cn/for_tokenizer.md) - 分词器迭代记录
-- [数据模块更新](../../changelog/cn/for_data.md) - 数据处理模块更新历史
-- [清理工具更新](../../changelog/cn/for_cleanup.md) - 清理工具功能更新历史
+- [训练模块更新](../../changelog/cn/for_train_model.md) — 训练相关功能更新记录
+- [处理器更新](../../changelog/cn/for_processor.md) — 处理器功能更新历史
+- [分词器更新](../../changelog/cn/for_tokenizer.md) — 分词器迭代记录
+- [数据模块更新](../../changelog/cn/for_data.md) — 数据处理模块更新历史
+- [清理工具更新](../../changelog/cn/for_cleanup.md) — 清理工具功能更新历史
 
-## 文档索引
+## 文档索引与配置参考
 
-所有文档的详细目录可在[文档索引](./INDEX.md)中查找。
+- 完整文档目录见 [docs/README.md](../README.md)。
+- 配置文件示例请参阅 [config/config.yaml](../../config/config.yaml)。
 
-## 配置参考
+## 当前文档目录结构
 
-项目配置文件示例及详细参数说明请参阅[配置示例](../../config/config.yaml)。
-
-## 文档结构
-
+```text
+docs/
+├── README.md                              # 文档总索引
+├── cn/
+│   ├── DOCS_cn.md                         # 本文档（中文导航）
+│   ├── getting-started.md                 # 快速入门
+│   └── installation_guide.md              # 安装指南
+├── en/
+│   ├── DOCS_en.md                         # English documentation hub
+│   ├── architecture.md                    # Modular src/ architecture
+│   ├── getting-started.md                 # Getting Started
+│   ├── installation_guide.md              # Installation Guide
+│   └── research-latest-llm-architecture.md
+├── data/
+│   ├── README.md                          # 数据文档总览
+│   ├── getting_started.md                 # 数据获取与预处理指南
+│   └── formats.md                         # 数据格式说明
+└── experiments/
+    ├── README.md                          # 实验平台使用指南
+    └── quickstart.md                      # 实验快速开始指南
 ```
-My_LLM/
-├── README.md           # 项目主要介绍
-├── DOCS.md             # 本文档（导航指南）
-├── docs/               # 文档主目录
-│   ├── project_overview.md  # 项目详细说明
-│   ├── technical_architecture.md # 技术架构说明
-│   ├── train_model_guide.md # 训练模块指南
-│   ├── generate_guide.md    # 生成模块指南
-│   ├── processor_guide.md   # 处理器指南
-│   ├── tokenizer_guide.md   # 分词器指南
-│   ├── scripts_guide.md     # 脚本说明
-│   ├── cleanup_guide.md     # 清理工具指南
-│   ├── project_maintenance.md # 项目维护指南
-│   ├── design_docs/         # 设计文档目录
-│   │   └── system_architecture.md # 系统架构设计
-│   ├── installation/        # 安装指南目录
-│   │   └── installation_guide.md # 安装指南
-│   ├── best_practices/      # 最佳实践指南目录
-│   │   └── training_optimization.md # 训练优化指南
-│   ├── code_explanation/    # 代码解析目录
-│   │   ├── train_model_code.md  # 训练模块代码解析
-│   │   ├── tokenizer_code.md    # 分词器代码解析
-│   │   └── processor_code.md    # 处理器代码解析
-│   └── INDEX.md        # 文档索引
-└── changelog/          # 更新日志目录
-    ├── for_train_model.md  # 训练模块更新日志
-    ├── for_processor.md    # 处理器更新日志
-    ├── for_tokenizer.md    # 分词器更新日志
-    ├── for_data.md         # 数据模块更新日志
-    └── for_cleanup.md      # 清理工具更新日志
-```
-
-## 核心文档
-
-- [README.md](../../README.md) - 项目概述、快速入门和主要功能介绍
-- [docs/project_overview.md](./project_overview.md) - 项目详细说明文档
-- [docs/technical_architecture.md](./technical_architecture.md) - 技术架构详解
-- [docs/design_docs/system_architecture.md](./design_docs/system_architecture.md) - 系统架构设计
-- [docs/installation/installation_guide.md](./installation/installation_guide.md) - 安装指南
-- [docs/train_model_guide.md](./train_model_guide.md) - 详细的模型训练指南
-- [docs/generate_guide.md](./generate_guide.md) - 文本生成功能使用指南
-- [docs/best_practices/training_optimization.md](./best_practices/training_optimization.md) - 训练优化最佳实践
-- [docs/INDEX.md](./INDEX.md) - 文档完整索引
-
-## 版本更新日志
-
-- [changelog/cn/for_train_model.md](../../changelog/cn/for_train_model.md) - 训练模块更新日志
-- [changelog/cn/for_cleanup.md](../../changelog/cn/for_cleanup.md) - 清理工具更新日志
-
-## 最近更新
-
-- **[2025-03-18]** 添加详细安装指南，支持各主要操作系统
-- **[2025-03-18]** 添加系统架构设计文档，详细说明系统模块关系和数据流
-- **[2025-03-18]** 添加训练优化最佳实践指南，提供硬件优化与超参数调优建议
-- **[2025-03-18]** 整理文档结构，添加代码解析与技术架构文档
-- **[2025-03-16]** 训练系统 v0.8.0 发布，增强稳定性与兼容性
-
-## 额外资源
-
-- 安装依赖: `pip install -r requirements.txt`
-- 问题反馈和贡献: 请提交Issue或Pull Request
-
----
-
-*文档最后更新: 2025年3月18日*

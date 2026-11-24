@@ -51,9 +51,9 @@ python tokenizer.py
 
 项目提供三种配置模板:
 
-- **预训练**: [config/pretrain.yaml](file:///workspace/config/pretrain.yaml)
-- **SFT微调**: [config/sft.yaml](file:///workspace/config/sft.yaml)
-- **强化学习**: [config/rl.yaml](file:///workspace/config/rl.yaml)
+- **预训练**: [config/pretrain.yaml](../../config/pretrain.yaml)
+- **SFT微调**: [config/sft.yaml](../../config/sft.yaml)
+- **强化学习**: [config/rl.yaml](../../config/rl.yaml)
 
 #### 步骤2：自定义配置
 
@@ -290,6 +290,6 @@ training:
 
 ## 下一步
 
-- 阅读 [使用指南](file:///workspace/docs/experiments/README.md) 了解更多高级功能
-- 查看 [examples/](file:///workspace/examples) 中的完整示例代码
-- 了解 [配置Schema](file:///workspace/src/config/schema.py) 详细参数说明
+- 阅读 [使用指南](./README.md) 了解更多高级功能
+- 查看 [examples/](../../examples/) 中的完整示例代码
+- 了解 [配置Schema](../../src/config/schema.py) 详细参数说明

@@ -27,7 +27,7 @@
 ## 🔗 相关资源
 
 - 项目主仓库：[README.md](../../README.md)
-- 实验平台：[docs/experiments/](docs/experiments/)
+- 实验平台：[docs/experiments/](../experiments/)
 - API接口：[api/server.py](../../api/server.py)
 
 ---
