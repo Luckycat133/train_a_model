@@ -41,4 +41,4 @@ __all__ = [
     "create_rl_trainer",
 ]
 
-__version__ = "0.9.0"
+__version__ = "0.9.1"
