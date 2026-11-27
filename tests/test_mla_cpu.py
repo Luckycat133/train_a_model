@@ -103,3 +103,10 @@ def test_mla_transformer_real_next_token_update_and_multilayer_cache():
 def test_invalid_mla_configuration_fails_explicitly(kwargs, reason):
     with pytest.raises(ValueError, match=reason):
         SimpleTransformer(37, d_model=32, nhead=4, num_layers=1, use_mla=True, **kwargs)
+
+
+def test_debug_entrypoint_runs_numerical_gate(capsys):
+    from debug_mla import main
+
+    main()
+    assert "CPU FP32 full/prefill+decode parity passed." in capsys.readouterr().out

@@ -23,9 +23,9 @@ description: 审查、开发和验收 Luckycat133/train_a_model 古典中文训�
 - 默认定位仍为 **Experimental — Preparing for Archive**。先修复并保存最小可复现实验，再由维护者决定是否继续研究。
 - `src/run.py -> src/trainer.py -> LMDataset/SimpleTransformer` 是当前公开 CLI 路径。`src/training/{base_trainer,pretrain,sft_trainer}.py` 是另一条原型路径，不能默认替代前者。
 - `SimpleTransformer` 包含 modern/legacy 分支。现代组件、缓存、MoE 和 checkpoint 开关的存在不代表数值正确。
-- 当前 `src/model.py` 未定义 `MultiHeadLatentAttention`，但调试脚本与架构测试引用它。MLA 必须记为未交付，不能根据配置常量补写“已实现”。
+- `MultiHeadLatentAttention` 是 modern 模式的可选后端；参见 `tests/test_mla_cpu.py` 的压缩状态及数值门禁。不能根据配置常量、CPU 门禁或调试输出推断 GPU 性能。
 - `ClassicalTokenizer.train()` 是 no-op；`build_tokenizer.py` 构建字符词表，不是已验收的 BPE/Unigram 训练器。
-- CI 仅编译 `src` 并运行两个 CLI 契约测试。CPU 真训练、SFT、恢复一致性、GPU、多卡与模型质量尚无本次验收证据。
+- 查看当前 CI 的 CLI、Tokenizer 契约、CPU 真训练、完成 epoch 恢复、MLA 与 SFT 结果；GPU、多卡和模型质量不能继承 CPU 结论。
 
 ## 工作流程
 
