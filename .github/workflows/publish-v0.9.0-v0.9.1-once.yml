@@ -1,0 +1,100 @@
+name: Publish verified train_a_model v0.9.0 and v0.9.1 once
+on:
+  push:
+    branches: ['dots/release-v0.9.0-v0.9.1-once']
+    paths: ['.github/workflows/publish-v0.9.0-v0.9.1-once.yml']
+permissions: {}
+env:
+  SOURCE_TAG: v0.9.0
+  SOURCE_SHA: 82669b6d1025be113acdb01ad9f8e13a30307b9c
+  TAG: v0.9.1
+  TARGET: 'b07cecbfe7cae4a482ec618644679f64c9f24012'
+  VERIFIED_CI: '46002367990'
+  NAME: micro-mla-sft-v0.9.1.tar.gz
+jobs:
+  verify:
+    if: github.repository == 'Luckycat133/train_a_model'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Check exact successful main CI and pre-existing v0.9.0 ref
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$SOURCE_TAG" --jq .object.sha)" = "$SOURCE_SHA"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)" = "$TARGET"
+          meta="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$VERIFIED_CI" --jq '[.head_sha,.head_branch,.event,.conclusion,.name]|@tsv')"
+          test "$meta" = "$(printf '%s\tmain\tpush\tsuccess\tCI' "$TARGET")"
+      - uses: actions/download-artifact@v8
+        with:
+          name: micro-mla-sft-v0.9.1
+          run-id: ${{ env.VERIFIED_CI }}
+          github-token: ${{ github.token }}
+          path: dist
+      - name: Verify exact benchmark provenance, members and checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist
+          sha256sum -c "$NAME.sha256"
+          python3 - <<'PY'
+          import hashlib, json, os, tarfile
+          expected = {"SHA256SUMS","config.json","eval.jsonl","metrics.json","micro-mla-sft.pt","pretrain.jsonl","tokenizer.json","train.jsonl"}
+          with tarfile.open(os.environ["NAME"]) as bundle:
+              members = [m for m in bundle if m.name != "."]
+              assert len(members) == len(expected)
+              assert all(m.isreg() and m.name in expected | {"./"+x for x in expected} and m.size < 1048576 for m in members)
+              files = {m.name.removeprefix("./"): bundle.extractfile(m).read() for m in members}
+          digests = dict(line.split("  ")[::-1] for line in files["SHA256SUMS"].decode("ascii").splitlines())
+          assert set(digests) == expected - {"SHA256SUMS"}
+          assert all(hashlib.sha256(files[name]).hexdigest() == sha for name, sha in digests.items())
+          m = json.loads(files["metrics.json"])
+          assert m["source_commit"] == os.environ["TARGET"] and "v" + m["release_version"] == os.environ["TAG"]
+          assert m["runtime"]["device"] == "cpu" and m["runtime"]["torch"] == "2.15.0+cpu"
+          assert m["pretrain_optimizer_updates"] >= 1 and m["sft_optimizer_updates"] == 6
+          assert m["reload_logits_exact"] is True and m["held_out_examples"] == 3
+          PY
+      - uses: actions/upload-artifact@v7
+        with:
+          name: verified-release-assets
+          path: dist/*
+          if-no-files-found: error
+  publish:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: verified-release-assets
+          path: dist
+      - name: Publish the old source milestone and the new benchmark release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = "Luckycat133/train_a_model"
+          test "$GITHUB_REF" = "refs/heads/dots/release-v0.9.0-v0.9.1-once"
+          test "$SOURCE_TAG" = "v0.9.0"
+          test "$TAG" = "v0.9.1"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$SOURCE_TAG" --jq .object.sha)" = "$SOURCE_SHA"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)" = "$TARGET"
+          (cd dist && sha256sum -c "$NAME.sha256")
+          gh release create "$SOURCE_TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --latest=false \
+            --title "MLA / SFT source milestone v0.9.0" \
+            --notes '源码里程碑：包含分组 MLA、压缩缓存、CPU SFT 保存/重载和独立诊断。不附训练权重；后续 v0.9.1 基准专用资产不得归于此标签。'
+          created="$(gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" -f "ref=refs/tags/$TAG" -f "sha=$TARGET" --jq .object.sha)"
+          test "$created" = "$TARGET"
+          gh release create "$TAG" "dist/$NAME" "dist/$NAME.sha256" --repo "$GITHUB_REPOSITORY" --verify-tag --latest \
+            --title "Deterministic CPU micro MLA SFT benchmark v0.9.1" \
+            --notes '公开包仅含合成夹具的 CPU 微型 MLA 基准：推理 checkpoint、固定合成数据、tokenizer、config、metrics.json、内部文件及外部包 SHA-256。这个规模只用于验证离线训练/评测/reload 和同环境可复现，不代表真实模型质量、吞吐、线上表现或训练恢复能力。'
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --jq .object.sha)" = "$TARGET"
+          test "$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets,isDraft --jq '.isDraft == false and (.assets | length) == 2')" = true
