@@ -4,7 +4,7 @@ All magic numbers are defined here as named constants for maintainability.
 """
 
 # ─── Version ─────────────────────────────────────────────────────────────────
-VERSION = "0.9.0"
+VERSION = "0.9.1"
 
 # ─── Model Architecture ──────────────────────────────────────────────────────
 DEFAULT_D_MODEL = 768
