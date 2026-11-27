@@ -177,8 +177,15 @@ def main() -> None:
     parser.add_argument("--out", required=True, type=Path, help="New directory for release artifacts")
     args = parser.parse_args()
     source = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
-    if subprocess.run(["git", "diff", "--quiet", "HEAD", "--"], cwd=ROOT, check=False).returncode != 0:
-        parser.error("The benchmark requires an unmodified tracked checkout")
+    # Verify the code this fixture imports. Git LFS can report unrelated historical
+    # weights as dirty on Actions checkout. They are never inputs to this benchmark.
+    consumed = ["benchmarks/micro_mla_sft.py", "src", "tokenizer.py"]
+    status = subprocess.check_output(
+        ["git", "status", "--porcelain", "--untracked-files=all", "--", *consumed],
+        cwd=ROOT, text=True,
+    )
+    if status:
+        parser.error(f"The benchmark requires clean source and tokenizer code:\n{status.rstrip()}")
     output = args.out.resolve()
     output.mkdir(parents=True, exist_ok=False)
     with tempfile.TemporaryDirectory(prefix="micro-mla-work-") as path:
