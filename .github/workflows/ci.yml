@@ -63,4 +63,4 @@ jobs:
       - name: Run the public smoke, exact epoch resume and checkpoint-loaded CPU SFT
         run: |
           python -m src.run --quick --no_cuda --model_save_dir "${RUNNER_TEMP}/train-smoke"
-          python -m pytest -q tests/test_cpu_training.py tests/test_sft_cpu_smoke.py
+          python -m pytest -q tests/test_cpu_training.py tests/test_sft_cpu_smoke.py tests/test_mla_cpu.py

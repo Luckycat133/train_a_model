@@ -31,6 +31,8 @@ from src.config import (
     USE_SLIDING_WINDOW,
     SWA_WINDOW_SIZE,
     VERSION,
+    MLA_LATENT_DIM,
+    MLA_NUM_LATENT_HEADS,
 )
 from src.logger import get_logger
 
@@ -103,6 +105,9 @@ def main() -> None:
     parser.add_argument("--num_layers", type=int, default=DEFAULT_NUM_LAYERS)
     parser.add_argument("--dim_feedforward", type=int, default=DEFAULT_DIM_FEEDFORWARD)
     parser.add_argument("--dropout", type=float, default=DEFAULT_DROPOUT)
+    parser.add_argument("--use_mla", action="store_true", help="Use experimental modern latent KV attention")
+    parser.add_argument("--mla_latent_dim", type=int, default=MLA_LATENT_DIM)
+    parser.add_argument("--mla_num_latent_heads", type=int, default=MLA_NUM_LATENT_HEADS)
 
     # Training
     parser.add_argument("--batch_size", type=int, default=DEFAULT_BATCH_SIZE)
@@ -219,6 +224,9 @@ def main() -> None:
         window_size=args.window_size,
         num_workers=args.num_workers,
         seed=args.seed,
+        use_mla=args.use_mla,
+        mla_latent_dim=args.mla_latent_dim,
+        mla_num_latent_heads=args.mla_num_latent_heads,
     )
 
 

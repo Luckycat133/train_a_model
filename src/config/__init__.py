@@ -118,7 +118,7 @@ try:
         GB,
     )
 except ImportError:
-    VERSION = "0.8.5"
+    VERSION = "0.9.0"
     DEFAULT_D_MODEL = 768
     DEFAULT_NHEAD = 12
     DEFAULT_NUM_LAYERS = 12

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import partial
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
@@ -24,6 +24,7 @@ except ImportError:
     def get_logger(name):
         return logging.getLogger(name)
 
+from src.config import MLA_LATENT_DIM, MLA_NUM_LATENT_HEADS
 from .base_trainer import BaseTrainer, TrainingConfig
 
 logger = get_logger("LingmaoMoyun.SFT")
@@ -54,6 +55,9 @@ class SFTConfig(TrainingConfig):
     max_prompt_length: int = 512
     max_response_length: int = 512
     truncate_response: bool = True
+    use_mla: bool = False
+    mla_latent_dim: int = MLA_LATENT_DIM
+    mla_num_latent_heads: int = MLA_NUM_LATENT_HEADS
     train_file: Optional[str] = None
     test_file: Optional[str] = None
     tokenizer_path: str = "tokenizer.json"
@@ -230,7 +234,8 @@ class SFTTrainer(BaseTrainer):
             if block.attention.use_sliding_window:
                 raise ValueError("Sliding-window attention is not validated for SFT")
             # Set during construction/loading, not as a side effect of computing a loss.
-            block.attention.use_flash_attention = False
+            if hasattr(block.attention, "use_flash_attention"):
+                block.attention.use_flash_attention = False
         return model
 
     def build_model(self) -> nn.Module:
@@ -257,6 +262,9 @@ class SFTTrainer(BaseTrainer):
             mode=cfg.mode,
             use_weight_tying=cfg.use_weight_tying,
             use_sliding_window=False,
+            use_mla=cfg.use_mla,
+            mla_latent_dim=cfg.mla_latent_dim,
+            mla_num_latent_heads=cfg.mla_num_latent_heads,
         )
 
         logger.info(f"SFT model built with {sum(p.numel() for p in model.parameters()):,} parameters")
@@ -303,7 +311,10 @@ class SFTTrainer(BaseTrainer):
         return loss, {"loss": loss.item(), "accuracy": accuracy, "num_tokens": num_tokens}
 
     def _get_extra_checkpoint_state(self) -> Dict[str, Any]:
-        return {"trainer_type": "sft", "ignore_token_id": self.ignore_token_id}
+        state = {"trainer_type": "sft", "ignore_token_id": self.ignore_token_id}
+        if self.model.mla_config is not None:
+            state["mla_config"] = self.model.mla_config
+        return state
 
     def create_dataloaders(
         self,
@@ -384,10 +395,24 @@ class SFTTrainer(BaseTrainer):
         if config is None:
             config = SFTConfig()
 
+        checkpoint = torch.load(pretrained_path, map_location="cpu", weights_only=True)
+        mla = checkpoint.get("mla_config") if "model_state_dict" in checkpoint else None
+        if mla is not None:
+            if not (isinstance(mla, dict) and set(mla) == {
+                "use_mla", "mla_latent_dim", "mla_num_latent_heads"
+            } and mla["use_mla"] is True and all(
+                type(mla[key]) is int and mla[key] > 0
+                for key in ("mla_latent_dim", "mla_num_latent_heads")
+            )):
+                raise ValueError("Invalid checkpoint MLA configuration")
+            if config.use_mla and (config.mla_latent_dim, config.mla_num_latent_heads) != (
+                mla["mla_latent_dim"], mla["mla_num_latent_heads"]
+            ):
+                raise ValueError("Checkpoint MLA configuration does not match supplied configuration")
+            config = replace(config, **mla)
+
         trainer = cls(config=config, accelerator=accelerator)
         model = trainer.build_model()
-
-        checkpoint = torch.load(pretrained_path, map_location="cpu", weights_only=True)
         if "model_state_dict" in checkpoint:
             model.load_state_dict(checkpoint["model_state_dict"])
         else:

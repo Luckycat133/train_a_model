@@ -13,7 +13,7 @@ pip install -r requirements.txt
 ```
 
 主要依赖:
-- PyTorch >= 2.0
+- PyTorch：最低版本见 [requirements.txt](../../requirements.txt)
 - PyYAML
 - Pydantic
 - tqdm
@@ -150,18 +150,18 @@ python examples/pretrain_example.py --config config/pretrain.yaml --device cpu
 python examples/pretrain_example.py --config config/pretrain.yaml --no-night-mode
 ```
 
-### SFT微调命令
+### 有限 CPU SFT 验证
 
 ```bash
-# 基础SFT微调
-python examples/sft_example.py --config config/sft.yaml --pretrained pretrain_model.pt
-
-# 准备SFT数据
-python examples/sft_example.py --prepare-data raw_data.json
-
-# 小数据集快速测试
-python examples/sft_example.py --config config/sft.yaml --epochs 1 --batch-size 4
+python -m pytest -q tests/test_sft_cpu_smoke.py
 ```
+
+该测试先用仓库小样本生成真实预训练检查点，再用
+`SFTTrainer.from_pretrained` 走 assistant-only loss、优化、保存／重载 logits
+和生成响应前缀检查，覆盖默认后端和可选 MLA。参见 [验证记录](../development/VALIDATION.md)。
+
+旧 `examples/sft_example.py --pretrained …` 通过 `train_model(resume_from=…)`
+要求可续训的完成 epoch 检查点，并非上述 SFT 权重加载路径；不作为已验证入口。
 
 ### 评估命令
 
