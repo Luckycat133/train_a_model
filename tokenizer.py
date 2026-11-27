@@ -147,12 +147,21 @@ class ClassicalTokenizer:
         import json
         with open(path, "r", encoding="utf-8", errors="strict") as f:
             data = json.load(f)
+        if not isinstance(data, dict):
+            raise ValueError(f"Unrecognised tokenizer vocab format in {path}")
         if "vocab" in data:
             vocab = data["vocab"]
-        elif "model" in data and "vocab" in data["model"]:
+        elif isinstance(data.get("model"), dict) and "vocab" in data["model"]:
             vocab = data["model"]["vocab"]
         else:
             raise ValueError(f"Unrecognised tokenizer format in {path}")
+        if (
+            not isinstance(vocab, dict)
+            or not vocab
+            or not all(isinstance(key, str) and type(value) is int for key, value in vocab.items())
+            or set(vocab.values()) != set(range(len(vocab)))
+        ):
+            raise ValueError(f"Expected unique, contiguous integer token IDs in vocab {path}")
         self.token_to_id = dict(vocab)
         self.id_to_token = {v: k for k, v in self.token_to_id.items()}
 
@@ -165,12 +174,18 @@ class ClassicalTokenizer:
             json.dump(data, f, ensure_ascii=False, indent=2)
 
     def encode(self, text: str) -> List[int]:
-        """Convert text to a list of token IDs (alias for tokenize → id lookup)."""
-        tokens = self.tokenize(text)
-        if not tokens:
-            return []
-        unk_id = self.token_to_id.get("<unk>", 0) if self.token_to_id else 0
-        return [self.token_to_id.get(t, unk_id) for t in tokens]
+        """Encode exact vocabulary matches, backing off to known characters."""
+        vocab = self.token_to_id
+        unk_id = vocab.get("<unk>", vocab.get("[UNK]", 0))
+        ids = []
+        for token in self.tokenize(text):
+            if token in vocab:
+                ids.append(vocab[token])
+            elif len(token) > 1:
+                ids.extend(vocab.get(char, unk_id) for char in token)
+            else:
+                ids.append(unk_id)
+        return ids
 
 
     def decode(self, ids: List[int]) -> str:

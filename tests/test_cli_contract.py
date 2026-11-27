@@ -29,6 +29,8 @@ def test_quick_preset_is_small_and_deterministic():
         num_layers=12,
         dim_feedforward=3072,
         batch_size=8,
+        seed=None,
+        num_workers=4,
         epochs=10,
         accumulation_steps=4,
         checkpoint_every=1,
@@ -46,4 +48,6 @@ def test_quick_preset_is_small_and_deterministic():
     assert args.model_save_dir == "quick_runs"
     assert (args.d_model, args.num_layers, args.epochs) == (32, 1, 1)
     assert args.use_amp is False
+    assert args.seed == 42
+    assert args.num_workers == 0
     assert args.auto_resume is False
