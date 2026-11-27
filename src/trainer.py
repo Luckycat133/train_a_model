@@ -86,7 +86,7 @@ from src.config import (
 )
 from src.dataset import LMDataset
 from src.logger import get_logger
-from src.model import PositionalEncoding, SimpleTransformer
+from src.model import MLA_LATENT_DIM, MLA_NUM_LATENT_HEADS, PositionalEncoding, SimpleTransformer
 
 logger = get_logger("LingmaoMoyun.Trainer")
 
@@ -296,6 +296,10 @@ def save_checkpoint(
         "best_loss": best_loss if best_loss is not None else float("inf"),
     }
 
+    mla_config = getattr(model, "mla_config", None)
+    if mla_config is not None:
+        checkpoint["mla_config"] = mla_config
+
     _atomic_torch_save(checkpoint, checkpoint_path)
     logger.info(f"Checkpoint saved → {checkpoint_path}")
 
@@ -484,6 +488,9 @@ def train_model(
     log_stats_interval: int = 100,
     seed: Optional[int] = None,
     num_workers: int = 0,
+    use_mla: bool = False,
+    mla_latent_dim: int = MLA_LATENT_DIM,
+    mla_num_latent_heads: int = MLA_NUM_LATENT_HEADS,
 ) -> nn.Module:
     """Train a language model end-to-end.
 
@@ -598,12 +605,17 @@ def train_model(
         use_moe=use_moe,
         num_experts=num_experts,
         top_k=top_k,
+        use_mla=use_mla,
+        mla_latent_dim=mla_latent_dim,
+        mla_num_latent_heads=mla_num_latent_heads,
     ).to(device)
 
     # Log model architecture info
     logger.info(f"Model architecture: {mode} mode")
     if mode == "modern":
-        if num_kv_heads and num_kv_heads < nhead:
+        if use_mla:
+            logger.info(f"  - MLA enabled: rank={mla_latent_dim}, groups={mla_num_latent_heads}")
+        elif num_kv_heads and num_kv_heads < nhead:
             logger.info(f"  - GQA enabled: {nhead} query heads, {num_kv_heads} KV heads")
         if use_moe:
             logger.info(f"  - MoE enabled: {num_experts} experts, top-{top_k} routing")
@@ -704,7 +716,8 @@ def train_model(
         use_checkpoint, use_gradient_checkpointing, use_compile, use_weight_tying, use_sliding_window,
         window_size, mode, num_kv_heads, use_moe, num_experts, top_k,
         LABEL_SMOOTHING, WARMUP_STEPS, TOTAL_TRAINING_STEPS, MIN_LR_RATIO,
-    ) + (("modern-uncached-attention-v2",) if mode == "modern" else ()))
+    ) + (("modern-uncached-attention-v2",) if mode == "modern" else ())
+        + (("mla-v1", mla_latent_dim, mla_num_latent_heads) if use_mla else ()))
     initial_epoch, best_loss = 0, float("inf")
     resume = resume_from or (find_latest_checkpoint(model_save_dir) if auto_resume else None)
     if resume:

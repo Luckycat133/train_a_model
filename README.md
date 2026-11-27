@@ -44,7 +44,14 @@ python -m src.run --help
 
 ## 验证范围与入口
 
-当前 CI（[.github/workflows/ci.yml](.github/workflows/ci.yml)）运行源文件编译（`python -m compileall -q src`）和轻量 CLI 合约测试（`pytest -q tests/test_cli_contract.py`）。完整 PyTorch 训练仍需在合适的本地环境执行。现阶段不声称“最佳实践”、性能提升或模型质量，除非对应结果出现在可复现评估中。
+当前 [CI](.github/workflows/ci.yml) 含 CLI、Tokenizer ID、真实 CPU 训练及完成 epoch 恢复、MLA 数值和 SFT 门禁。历史 [验证回执](docs/development/VALIDATION.md) 仅适用于各自提交。以下命令使用仓库内小样本，不下载语料或调用 API：
+
+```bash
+python -m src.run --quick --no_cuda --use_mla --mla_latent_dim 8 --mla_num_latent_heads 2 --save_dir quick_runs/mla
+python -m pytest -q tests/test_cpu_training.py tests/test_mla_cpu.py tests/test_sft_cpu_smoke.py
+```
+
+MLA 是现代模式的可选开关，默认架构及已有非 MLA 断点不变；不与滑窗同用。组数须整除查询头数与联合潜维。压缩 cache 是每层 `[B,T,G,R/G]` 联合潜变量与 `[B,T,P]` 旋转位置键，只有当 `R + P` 小于常规 K/V 宽度时才减少缓存元素。SFT 以 `SFTTrainer.from_pretrained` 的有界 CPU 测试为证，不把旧实验脚本、GPU/分布式或模型质量作为已验证能力。
 
 - CLI 入口：[src/run.py](src/run.py)
 - 配置常量与 Schema：[src/config.py](src/config.py) · [src/config/\_\_init\_\_.py](src/config/__init__.py)（注意仓库同时存在 `src/config.py` 与 `src/config/` 包，导入 `src.config` 时优先解析包入口）

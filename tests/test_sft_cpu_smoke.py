@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 import torch
 
+from src.model import ModernAttention, MultiHeadLatentAttention
 from src.trainer import train_model
 from src.training.sft_trainer import InstructionResponseDataset, SFTConfig, SFTTrainer
 from tokenizer import ClassicalTokenizer
@@ -28,7 +29,8 @@ def fixture(tmp_path):
     return path
 
 
-def test_sft_cpu_finetunes_from_real_checkpoint_and_reloads(tmp_path):
+@pytest.mark.parametrize("use_mla", [False, True], ids=["default", "mla"])
+def test_sft_cpu_finetunes_from_real_checkpoint_and_reloads(tmp_path, use_mla):
     torch.set_num_threads(1)
     weights = tmp_path / "pretrain"
     train_model(train_file=str(ROOT / "examples/quick_train.jsonl"),
@@ -36,7 +38,8 @@ def test_sft_cpu_finetunes_from_real_checkpoint_and_reloads(tmp_path):
                 model_save_dir=str(weights), context_length=32, batch_size=2,
                 d_model=32, nhead=4, num_layers=1, dim_feedforward=64, epochs=1,
                 auto_resume=False, night_mode=False, seed=42, use_amp=False,
-                use_checkpoint=False, use_gradient_checkpointing=False, use_compile=False)
+                use_checkpoint=False, use_gradient_checkpointing=False, use_compile=False,
+                use_mla=use_mla, mla_latent_dim=8, mla_num_latent_heads=2)
     pretrained_path = weights / "model_epoch_1.pt"
     config = SFTConfig(tokenizer_path=str(TOKENIZER), model_save_dir=str(tmp_path / "sft"),
                        context_length=32, max_prompt_length=24, max_response_length=7,
@@ -81,6 +84,11 @@ def test_sft_cpu_finetunes_from_real_checkpoint_and_reloads(tmp_path):
     assert state["step"] == 2
     assert any(not torch.equal(value, initial[key]) for key, value in state["model_state_dict"].items())
     clone = SFTTrainer.from_pretrained(str(output), config=config)
+    expected_backend = MultiHeadLatentAttention if use_mla else ModernAttention
+    assert isinstance(clone.model.transformer_blocks[0].attention, expected_backend)
+    assert isinstance(trainer.model.transformer_blocks[0].attention, expected_backend)
+    if use_mla:
+        assert clone.model.mla_config == {"use_mla": True, "mla_latent_dim": 8, "mla_num_latent_heads": 2}
     assert all(torch.equal(value, state["model_state_dict"][key]) for key, value in clone.model.state_dict().items())
     with torch.no_grad():
         torch.testing.assert_close(trainer.model.eval()(unpadded), clone.model.eval()(unpadded), rtol=0, atol=0)

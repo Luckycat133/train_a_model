@@ -13,7 +13,8 @@ from src.trainer import find_latest_checkpoint, train_model
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_cpu_training_resumes_exactly_at_epoch_boundary(tmp_path):
+@pytest.mark.parametrize("use_mla", [False, True], ids=["default", "mla"])
+def test_cpu_training_resumes_exactly_at_epoch_boundary(tmp_path, use_mla):
     torch.set_num_threads(1)
     full = tmp_path / "full"
     split = tmp_path / "split"
@@ -22,7 +23,8 @@ def test_cpu_training_resumes_exactly_at_epoch_boundary(tmp_path):
                   context_length=32, batch_size=2, d_model=32, num_layers=1, nhead=4,
                   dim_feedforward=64, dropout=0.1, learning_rate=0.01, use_amp=False,
                   use_checkpoint=False, use_gradient_checkpointing=False, use_compile=False,
-                  night_mode=False, num_workers=0, checkpoint_every=1, accumulation_steps=3)
+                  night_mode=False, num_workers=0, checkpoint_every=1, accumulation_steps=3,
+                  use_mla=use_mla, mla_latent_dim=8, mla_num_latent_heads=2)
     continuous = train_model(model_save_dir=str(full), epochs=2, seed=42, auto_resume=False, **common)
     train_model(model_save_dir=str(split), epochs=1, seed=42, auto_resume=False, **common)
     first = split / "model_epoch_1.pt"

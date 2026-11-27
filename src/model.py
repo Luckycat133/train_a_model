@@ -49,7 +49,8 @@ from src.config import (
     USE_SLIDING_WINDOW,
     SWA_WINDOW_SIZE,
     USE_WEIGHT_TYING,
-    GRADIENT_CHECKPOINTING_CHUNKS,
+    MLA_LATENT_DIM,
+    MLA_NUM_LATENT_HEADS,
 )
 
 
@@ -149,7 +150,7 @@ class RotaryEmbedding(nn.Module):
 
     def forward(self, seq_len: int, device=None) -> tuple[torch.Tensor, torch.Tensor]:
         """Return (cos, sin) for the requested sequence length."""
-        if seq_len > self.max_seq_len:
+        if seq_len > self.cos_cached.shape[0]:
             self._build_cache(seq_len)
         cos = self.cos_cached[:seq_len]
         sin = self.sin_cached[:seq_len]
@@ -579,6 +580,109 @@ class ModernAttention(nn.Module):
         return self.o_proj(attn_output), present_key_values
 
 
+class MultiHeadLatentAttention(nn.Module):
+    """Joint low-rank K/V with a separate, shared RoPE key.
+
+    Cache entries are (latent, position_key), shaped [B, T, G, R/G] and
+    [B, T, P]. We absorb the K up-projection into the queries and apply the
+    V up-projection after mixing latents, so decoding never expands cached K/V.
+    """
+
+    def __init__(
+        self, d_model: int, num_heads: int, latent_dim: int = MLA_LATENT_DIM,
+        num_latent_heads: int = MLA_NUM_LATENT_HEADS, dropout: float = 0.0,
+        max_seq_len: int = DEFAULT_MAX_LEN, rope_scaling: Optional[dict] = None,
+        attention_dropout: Optional[float] = None,
+    ) -> None:
+        super().__init__()
+        if num_heads < 1 or d_model < num_heads or d_model % num_heads:
+            raise ValueError("MLA requires d_model divisible by num_heads")
+        if (num_latent_heads < 1 or latent_dim < num_latent_heads
+                or latent_dim % num_latent_heads or num_heads % num_latent_heads):
+            raise ValueError("MLA latent_dim and num_heads must divide evenly into latent groups")
+        self.num_heads = num_heads
+        self.num_latent_heads = num_latent_heads
+        self.head_dim = d_model // num_heads
+        self.pos_dim = max(2, 2 * (self.head_dim // 4))
+        self.latent_dim = latent_dim
+        self.group_dim = latent_dim // num_latent_heads
+        self.heads_per_group = num_heads // num_latent_heads
+        self.use_sliding_window = False
+        self.attention_dropout = dropout if attention_dropout is None else attention_dropout
+        self.q_content = nn.Linear(d_model, d_model, bias=False)
+        self.q_position = nn.Linear(d_model, num_heads * self.pos_dim, bias=False)
+        self.k_position = nn.Linear(d_model, self.pos_dim, bias=False)
+        self.kv_down = nn.Linear(d_model, latent_dim, bias=False)
+        self.k_up = nn.Linear(self.group_dim, d_model, bias=False)
+        self.v_up = nn.Linear(self.group_dim, d_model, bias=False)
+        self.o_proj = nn.Linear(d_model, d_model, bias=False)
+        self.rotary = RotaryEmbedding(self.pos_dim, max_seq_len, rope_scaling=rope_scaling)
+
+    def forward(
+        self, x: torch.Tensor, attention_mask: Optional[torch.Tensor] = None,
+        is_causal: bool = True, use_cache: bool = False,
+        past_key_values: Optional[tuple] = None,
+    ) -> tuple[torch.Tensor, Optional[tuple]]:
+        batch, length, _ = x.shape
+        groups, heads, rank = self.num_latent_heads, self.heads_per_group, self.group_dim
+        latent = self.kv_down(x).reshape(batch, length, groups, rank)
+        q_pos = self.q_position(x).reshape(batch, length, self.num_heads, self.pos_dim)
+        k_pos = self.k_position(x)
+        offset = 0
+        if past_key_values is not None:
+            past_latent, past_pos = past_key_values
+            if (past_latent.ndim != 4 or past_latent.shape[0] != batch
+                    or past_latent.shape[2:] != (groups, rank)
+                    or past_pos.shape != (batch, past_latent.shape[1], self.pos_dim)):
+                raise ValueError("Invalid MLA cache shape")
+            offset = past_latent.shape[1]
+        total = offset + length
+        cos, sin = self.rotary(total, device=x.device)
+        q_pos, k_pos = self.rotary.apply_rotary_qk(
+            q_pos, k_pos.unsqueeze(2), cos[offset:].to(q_pos.dtype), sin[offset:].to(q_pos.dtype),
+        )
+        k_pos = k_pos.squeeze(2)
+        if past_key_values is not None:
+            latent = torch.cat((past_latent, latent), dim=1)
+            k_pos = torch.cat((past_pos, k_pos), dim=1)
+
+        q = self.q_content(x).reshape(batch, length, groups, heads, self.head_dim)
+        k_weight = self.k_up.weight.reshape(groups, heads, self.head_dim, rank)
+        v_weight = self.v_up.weight.reshape(groups, heads, self.head_dim, rank)
+        q_latent = torch.einsum("blghd,ghdr->blghr", q, k_weight)
+        content = torch.einsum("blghr,btgr->bghlt", q_latent, latent)
+        position = torch.einsum("blhp,btp->bhlt", q_pos, k_pos).reshape(batch, groups, heads, length, total)
+        scores = ((content + position) / math.sqrt(self.head_dim + self.pos_dim)).reshape(
+            batch, self.num_heads, length, total,
+        )
+
+        if attention_mask is not None:
+            mask = attention_mask.to(device=x.device)
+            if mask.ndim == 2:
+                mask = mask[:, None, None, :]
+            elif mask.ndim == 3:
+                mask = mask[:, None, :, :]
+            elif mask.ndim != 4:
+                raise ValueError("Attention mask must have rank 2, 3, or 4")
+            if (mask.shape[-1] != total or mask.shape[-2] not in (1, length)
+                    or mask.shape[0] not in (1, batch) or mask.shape[1] not in (1, self.num_heads)):
+                raise ValueError("Attention mask must cover current queries and the full KV prefix")
+            if mask.is_floating_point():
+                scores = scores + mask.to(scores.dtype)
+            else:
+                scores = scores.masked_fill(~mask.bool(), float("-inf"))
+        if is_causal:
+            q_positions = torch.arange(offset, total, device=x.device)
+            k_positions = torch.arange(total, device=x.device)
+            scores = scores.masked_fill(k_positions[None, :] > q_positions[:, None], float("-inf"))
+        valid = scores.ne(float("-inf")).any(dim=-1, keepdim=True)
+        weights = F.softmax(scores.masked_fill(~valid, 0), dim=-1).masked_fill(~valid, 0)
+        weights = F.dropout(weights, p=self.attention_dropout, training=self.training)
+        mixed = torch.einsum("bghlt,btgr->blghr", weights.reshape(batch, groups, heads, length, total), latent)
+        output = torch.einsum("blghr,ghdr->blghd", mixed, v_weight).reshape(batch, length, -1)
+        return self.o_proj(output), (latent, k_pos) if use_cache else None
+
+
 class ModernTransformerBlock(nn.Module):
     """Single transformer layer with modern components: RoPE, GQA, SwiGLU/MoE.
 
@@ -614,20 +718,32 @@ class ModernTransformerBlock(nn.Module):
         attention_dropout: float = 0.05,  # Modern LLMs use ~0.05
         use_sliding_window: bool = USE_SLIDING_WINDOW,
         window_size: int = SWA_WINDOW_SIZE,
+        use_mla: bool = False,
+        mla_latent_dim: int = MLA_LATENT_DIM,
+        mla_num_latent_heads: int = MLA_NUM_LATENT_HEADS,
     ) -> None:
         super().__init__()
 
-        self.attention = ModernAttention(
-            d_model=d_model,
-            num_heads=num_heads,
-            num_kv_heads=num_kv_heads,
-            dropout=dropout,
-            max_seq_len=max_seq_len,
-            rope_scaling=rope_scaling,
-            attention_dropout=attention_dropout,
-            use_sliding_window=use_sliding_window,
-            window_size=window_size,
-        )
+        if use_mla:
+            if use_sliding_window:
+                raise ValueError("Sliding-window attention is not supported with MLA")
+            self.attention = MultiHeadLatentAttention(
+                d_model=d_model, num_heads=num_heads, latent_dim=mla_latent_dim,
+                num_latent_heads=mla_num_latent_heads, max_seq_len=max_seq_len,
+                rope_scaling=rope_scaling, attention_dropout=attention_dropout,
+            )
+        else:
+            self.attention = ModernAttention(
+                d_model=d_model,
+                num_heads=num_heads,
+                num_kv_heads=num_kv_heads,
+                dropout=dropout,
+                max_seq_len=max_seq_len,
+                rope_scaling=rope_scaling,
+                attention_dropout=attention_dropout,
+                use_sliding_window=use_sliding_window,
+                window_size=window_size,
+            )
         self.attention_norm = nn.RMSNorm(d_model)  # Pre-norm (like GPT/NormFormer)
 
         if use_moe:
@@ -720,9 +836,16 @@ class SimpleTransformer(nn.Module):
         # Sliding window attention
         use_sliding_window: bool = USE_SLIDING_WINDOW,
         window_size: int = SWA_WINDOW_SIZE,
+        use_mla: bool = False,
+        mla_latent_dim: int = MLA_LATENT_DIM,
+        mla_num_latent_heads: int = MLA_NUM_LATENT_HEADS,
     ) -> None:
         super().__init__()
+        if use_mla and mode != "modern":
+            raise ValueError("MLA requires modern mode")
         self.mode = mode
+        self.mla_config = ({"use_mla": True, "mla_latent_dim": mla_latent_dim,
+                            "mla_num_latent_heads": mla_num_latent_heads} if use_mla else None)
         self.d_model = d_model
         self.use_checkpoint = use_checkpoint
         self.use_weight_tying = use_weight_tying
@@ -755,6 +878,9 @@ class SimpleTransformer(nn.Module):
                     rope_scaling=rope_scaling,
                     use_sliding_window=use_sliding_window,
                     window_size=window_size,
+                    use_mla=use_mla,
+                    mla_latent_dim=mla_latent_dim,
+                    mla_num_latent_heads=mla_num_latent_heads,
                 )
                 for _ in range(num_layers)
             ])
@@ -861,30 +987,28 @@ class SimpleTransformer(nn.Module):
                 output = self.transformer_encoder(src)
         else:
             src = self.embedding(src)
-            if getattr(self, 'gradient_checkpointing', False):
-                # Use checkpoint_sequential for memory-efficient training
-                # attention_mask is passed as None during checkpointing (typical for causal attention)
-                src = torch.utils.checkpoint.checkpoint_sequential(
-                    self.transformer_blocks,
-                    GRADIENT_CHECKPOINTING_CHUNKS,
-                    src,
-                    attention_mask=None,
-                )
-                present = None
-            else:
-                new_past_key_values = []
-                for i, block in enumerate(self.transformer_blocks):
-                    past = past_key_values[i] if past_key_values else None
+            checkpoint_blocks = (self.training and torch.is_grad_enabled()
+                                 and getattr(self, "gradient_checkpointing", False)
+                                 and not use_cache and past_key_values is None)
+            new_past_key_values = []
+            for i, block in enumerate(self.transformer_blocks):
+                if checkpoint_blocks:
+                    # Non-reentrant checkpoint supports the block's tuple (including aux loss).
+                    src, present_i, aux_loss = torch.utils.checkpoint.checkpoint(
+                        block, src, attention_mask, use_reentrant=False,
+                    )
+                else:
+                    past = past_key_values[i] if past_key_values is not None else None
                     src, present_i, aux_loss = block(
                         src,
                         attention_mask=attention_mask,
                         use_cache=use_cache,
                         past_key_values=past,
                     )
-                    total_aux_loss = total_aux_loss + aux_loss
-                    if use_cache:
-                        new_past_key_values.append(present_i)
-                present = tuple(new_past_key_values) if use_cache else None
+                total_aux_loss = total_aux_loss + aux_loss
+                if use_cache:
+                    new_past_key_values.append(present_i)
+            present = tuple(new_past_key_values) if use_cache else None
             output = self.norm(src)
 
         output = self.output_layer(output)

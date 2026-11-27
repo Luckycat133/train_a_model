@@ -296,14 +296,16 @@ class TestEndToEnd:
         # Training step
         model.train()
         optimizer.zero_grad()
-        logits, _ = model(input_ids)
-        
-        # Dummy loss
-        loss = logits.sum()
+        logits = model(input_ids)
+        assert logits.shape == (2, 16, vocab_size)
+        loss = nn.functional.cross_entropy(
+            logits[:, :-1].reshape(-1, vocab_size), input_ids[:, 1:].reshape(-1)
+        )
+        assert torch.isfinite(loss)
         loss.backward()
+        assert any(p.grad is not None and torch.isfinite(p.grad).all() and (p.grad != 0).any()
+                   for p in model.parameters())
         optimizer.step()
-        
-        assert loss.item() == loss.item()  # Just check it's not nan
     
     def test_mla_transformer_training_step(self, device):
         """Test that MLA transformer can do a training step."""
@@ -324,14 +326,16 @@ class TestEndToEnd:
         # Training step
         model.train()
         optimizer.zero_grad()
-        logits, _ = model(input_ids)
-        
-        # Dummy loss
-        loss = logits.sum()
+        logits = model(input_ids)
+        assert logits.shape == (2, 16, vocab_size)
+        loss = nn.functional.cross_entropy(
+            logits[:, :-1].reshape(-1, vocab_size), input_ids[:, 1:].reshape(-1)
+        )
+        assert torch.isfinite(loss)
         loss.backward()
+        assert any(p.grad is not None and torch.isfinite(p.grad).all() and (p.grad != 0).any()
+                   for p in model.parameters())
         optimizer.step()
-        
-        assert loss.item() == loss.item()  # Just check it's not nan
     
     def test_generation_with_mla(self, device):
         """Test generation with MLA KV cache."""
